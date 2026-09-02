@@ -180,6 +180,13 @@ final class AppState {
                 Relocator.writeManifest(plan.record)
                 ledger.add(plan.record)
                 supportItemsAppID = nil
+                if !createAppSymlink {
+                    selectedRowID = plan.record.destinationRoot
+                }
+            } onFailure: { [self] in
+                // Keep whatever actually made it across so it stays restorable.
+                reconcile(plan.record)
+                supportItemsAppID = nil
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -195,13 +202,32 @@ final class AppState {
                 ledger.remove(appNamed: record.appName)
                 supportItemsAppID = nil
                 selectedRowID = record.bundleItem?.originalPath
+            } onFailure: { [self] in
+                // Items already back home must drop out of the record.
+                reconcile(record)
+                supportItemsAppID = nil
             }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func perform(_ operations: [FileOperation], onSuccess: @escaping @MainActor () -> Void) {
+    /// Rewrites the ledger entry to hold only the items still sitting at their
+    /// relocated path, so a half-finished move stays reversible.
+    private func reconcile(_ record: MoveRecord) {
+        let fm = FileManager.default
+        var pruned = record
+        pruned.items = record.items.filter { fm.fileExists(atPath: $0.relocatedPath) }
+        if pruned.items.isEmpty {
+            ledger.remove(appNamed: record.appName)
+        } else {
+            ledger.add(pruned)
+        }
+    }
+
+    private func perform(_ operations: [FileOperation],
+                         onSuccess: @escaping @MainActor () -> Void,
+                         onFailure: @escaping @MainActor () -> Void) {
         isBusy = true
         operationProgress = 0
         operationLabel = "Préparation…"
@@ -222,6 +248,7 @@ final class AppState {
             await MainActor.run {
                 guard let self else { return }
                 if let failure {
+                    onFailure()
                     self.errorMessage = failure.localizedDescription
                 } else {
                     onSuccess()

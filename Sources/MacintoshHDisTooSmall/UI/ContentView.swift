@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct ContentView: View {
     @State private var state = AppState()
 

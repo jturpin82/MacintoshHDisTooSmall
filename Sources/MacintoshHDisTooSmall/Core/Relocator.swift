@@ -44,8 +44,8 @@ enum Relocator {
             throw RelocationError.destinationUnusable(destination.path)
         }
         let destinationPath = destination.standardizedFileURL.path
-        for forbidden in ["/Applications", "/System", "/Library"] where
-            destinationPath == forbidden || destinationPath.hasPrefix(forbidden + "/") {
+        let forbiddenRoots = ["/Applications", "/System", "/Library"]
+        if forbiddenRoots.contains(where: { destinationPath == $0 || destinationPath.hasPrefix($0 + "/") }) {
             throw RelocationError.destinationForbidden(destinationPath)
         }
         guard !app.isRelocated else { throw RelocationError.alreadyRelocated(app.name) }
