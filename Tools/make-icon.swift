@@ -34,19 +34,20 @@ func render(pixels: Int) -> Data? {
     ])
     gradient?.draw(in: path, angle: -90)
 
-    if let symbol = NSImage(systemSymbolName: "externaldrive.connected.to.line.below.fill",
-                            accessibilityDescription: nil) {
-        let configuration = NSImage.SymbolConfiguration(pointSize: side * 0.42, weight: .medium)
-        let glyph = symbol.withSymbolConfiguration(configuration) ?? symbol
-        let glyphSize = glyph.size
-        let target = NSRect(x: (side - glyphSize.width) / 2,
-                            y: (side - glyphSize.height) / 2,
-                            width: glyphSize.width,
-                            height: glyphSize.height)
-        NSColor.white.set()
-        target.fill(using: .sourceOver)
-        glyph.draw(in: target, from: .zero, operation: .destinationIn, fraction: 1)
+    // Drawn by hand rather than from an SF Symbol: symbol rasterisation is
+    // unreliable in a headless build and silently produced a blank square.
+    func rounded(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ r: CGFloat) -> NSBezierPath {
+        NSBezierPath(roundedRect: NSRect(x: x * side, y: y * side, width: w * side, height: h * side),
+                     xRadius: r * side, yRadius: r * side)
     }
+
+    // Drive body, its slot, and the line it sits above.
+    NSColor.white.setFill()
+    rounded(0.24, 0.435, 0.52, 0.235, 0.05).fill()
+    rounded(0.31, 0.295, 0.38, 0.05, 0.025).fill()
+
+    NSColor(calibratedRed: 0.28, green: 0.45, blue: 0.94, alpha: 1).setFill()
+    rounded(0.305, 0.495, 0.28, 0.038, 0.019).fill()
 
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])
