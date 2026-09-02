@@ -210,7 +210,7 @@ final class AppState {
     /// volume's own name when it's mounted, otherwise a best guess from the
     /// path itself (an unmounted external disk still under /Volumes/<name>).
     private static func volumeIdentity(for url: URL) -> (id: String, label: String) {
-        if let name = try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName, let name {
+        if let name = try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName {
             return (name, name)
         }
         let components = url.pathComponents

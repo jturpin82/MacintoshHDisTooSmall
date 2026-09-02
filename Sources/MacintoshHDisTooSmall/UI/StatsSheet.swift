@@ -1,6 +1,7 @@
 import SwiftUI
 import Charts
 
+@MainActor
 struct StatsSheet: View {
     @Bindable var state: AppState
     @Environment(\.dismiss) private var dismiss
