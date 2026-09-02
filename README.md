@@ -63,8 +63,13 @@ exactement où c'était.
 - **Volume démonté = app cassée.** Si la destination est un disque externe non monté, le lien
   dans `/Applications` pointe dans le vide. L'app le signale dans le panneau de détail.
 - **Droits administrateur.** Certaines apps appartiennent à `root`. Quand une opération échoue
-  pour cause de permissions, tout le reste du lot est rejoué en une seule fois via
-  `osascript … with administrator privileges` : le mot de passe n'est demandé qu'une fois.
+  pour cause de permissions, l'app corrige d'abord la propriété de l'élément concerné
+  (`chown -R <toi>:<groupe déjà utilisé à cet endroit>`, par exemple `joe:admin` pour une app
+  de `/Applications`) puis rejoue la même opération normalement. C'est la seule chose qui
+  s'exécute en root ; le déplacement lui-même se fait ensuite sous ton compte, donc le résultat
+  t'appartient — pas de dossier ou de lien fantôme appartenant à `root` à traiter à nouveau la
+  prochaine fois. Si cette correction ne suffit pas, tout le reste du lot est rejoué en une
+  seule fois via `osascript … with administrator privileges`, comme avant.
 - **Détection des fichiers annexes.** Le rapprochement se fait sur le nom exact du dossier
   (identifiant de bundle, puis nom de l'app) — jamais de correspondance approximative. La
   liste est présentée avec cases à cocher : rien n'est déplacé sans validation.
@@ -93,7 +98,7 @@ app, puisque plusieurs apps partagent désormais les mêmes dossiers de destinat
 ## Compiler
 
 ```bash
-./build.sh 0.2.2
+./build.sh 0.2.3
 ```
 
 Produit `dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.

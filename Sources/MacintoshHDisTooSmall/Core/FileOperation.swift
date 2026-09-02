@@ -137,6 +137,42 @@ enum FileOperation {
         return false
     }
 
+    /// The existing path that must become writable by the current user for
+    /// this operation to succeed, if it is the one that just failed with a
+    /// permission error — `from` for a move (it has to be deleted entirely,
+    /// not just written to), the item itself for the others, walking up to
+    /// the nearest existing ancestor when the target doesn't exist yet (e.g.
+    /// a destination folder that still needs to be created).
+    private func pathNeedingOwnership() -> URL? {
+        func nearestExisting(_ url: URL) -> URL? {
+            let fm = FileManager.default
+            var candidate = url
+            while !fm.fileExists(atPath: candidate.path) {
+                let parent = candidate.deletingLastPathComponent()
+                guard parent.path != candidate.path else { return nil }
+                candidate = parent
+            }
+            return candidate
+        }
+        switch self {
+        case .move(let from, let to):
+            return FileManager.default.fileExists(atPath: from.path) ? from : nearestExisting(to)
+        case .makeDirectory(let url), .makeSymlink(let url, _), .removeSymlink(let url), .trash(let url):
+            return nearestExisting(url)
+        }
+    }
+
+    /// Group of whatever already owns `path`'s parent, so a fixed-up file
+    /// keeps the convention already used at that location (e.g. `admin` for
+    /// /Applications) instead of an arbitrary group nobody else there has.
+    private static func matchingGroup(for path: URL) -> String? {
+        let parent = path.deletingLastPathComponent()
+        return (try? parent.resourceValues(forKeys: [.fileGroupOwnerAccountNameKey]))?
+            .fileGroupOwnerAccountName
+            ?? (try? path.resourceValues(forKeys: [.fileGroupOwnerAccountNameKey]))?
+            .fileGroupOwnerAccountName
+    }
+
     /// If this operation is a move whose source is still in place while its
     /// destination exists, that destination can only be debris from the attempt
     /// that just failed: a cross-volume moveItem copies before it deletes, and
@@ -152,21 +188,59 @@ enum FileOperation {
         return "/bin/rm -rf \(Self.quote(to.path))"
     }
 
-    /// Runs every operation in order. On the first permission failure the whole
-    /// remainder is re-run as a single privileged script, so the user is asked
-    /// for a password at most once per operation batch.
+    /// Runs every operation in order. On a permission failure, the offending
+    /// path is first handed back to the current user with one small
+    /// `chown -R` — done as root, but that is all that runs as root — and the
+    /// same operation is retried natively. This keeps every file the app ever
+    /// touches owned by the user instead of root, which the previous
+    /// approach (replaying the whole remaining batch as root) did not: a move
+    /// that needed elevation left its destination copy, and the symlink back
+    /// in /Applications, owned by root — invisible until the next restore or
+    /// delete needed a password again for files that should never have
+    /// needed one.
+    ///
+    /// If chown was not possible, or the retry still fails, that one
+    /// operation and everything after it falls back to running as a single
+    /// privileged script, as before.
     static func execute(_ operations: [FileOperation],
                         progress: (String, Double) -> Void) throws {
         let total = Double(max(operations.count, 1))
+        var chownedPaths = Set<String>()
 
-        for (index, operation) in operations.enumerated() {
+        var index = 0
+        while index < operations.count {
+            let operation = operations[index]
             progress(operation.progressLabel, Double(index) / total)
             do {
                 try operation.runNative()
+                index += 1
             } catch {
                 guard isPermissionError(error) else { throw error }
-                progress("Authentification requise…", Double(index) / total)
 
+                if let path = operation.pathNeedingOwnership(),
+                   !chownedPaths.contains(path.path),
+                   let group = matchingGroup(for: path) {
+                    chownedPaths.insert(path.path)
+                    progress("Correction des droits sur \(path.lastPathComponent)…", Double(index) / total)
+                    let owner = quote("\(NSUserName()):\(group)")
+                    let chown = "set -e\n/usr/sbin/chown -R \(owner) \(quote(path.path))\n"
+                    do {
+                        try PrivilegedRunner.run(shellScript: chown)
+                        // A cross-volume move fails on its removeItem step,
+                        // after cp -RX already succeeded: from still exists,
+                        // which is what earned this path, but so does to.
+                        // Retrying runNative() as-is would cp into that
+                        // existing destination and nest the bundle inside
+                        // itself, so clear it first — same debris the old
+                        // fallback below also has to account for.
+                        _ = operation.partialDestinationCleanup()
+                        continue // retry the same operation, natively this time
+                    } catch {
+                        // Fall through to the old whole-batch escalation below.
+                    }
+                }
+
+                progress("Authentification requise…", Double(index) / total)
                 var lines = ["set -e"]
                 if let cleanup = operation.partialDestinationCleanup() {
                     lines.append(cleanup)
