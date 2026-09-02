@@ -29,6 +29,11 @@ struct ContentView: View {
                 }
             }
             ToolbarItem {
+                Button { state.showStats = true } label: {
+                    Label("Répartition", systemImage: "chart.pie")
+                }
+            }
+            ToolbarItem {
                 Button { state.showSettings = true } label: {
                     Label("Réglages", systemImage: "gearshape")
                 }
@@ -43,6 +48,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $state.showSettings) {
             SettingsSheet(state: state)
+        }
+        .sheet(isPresented: $state.showStats) {
+            StatsSheet(state: state)
         }
         .confirmationDialog("Supprimer \(state.deletionSummary?.name ?? "cette app") ?",
                             isPresented: $state.showDeleteConfirmation,

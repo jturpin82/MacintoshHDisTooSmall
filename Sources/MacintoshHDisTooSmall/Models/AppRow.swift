@@ -28,6 +28,15 @@ struct AppRow: Identifiable, Hashable {
 
     var bundleID: String? { app?.bundleID ?? record?.bundleID }
 
+    /// Where this app's bundle actually sits once relocated — tracked (its
+    /// record says so) or merely orphaned (follow the /Applications symlink).
+    /// Used to attribute space to a destination volume in the overview.
+    var relocatedLocationURL: URL? {
+        if let path = record?.bundleItem?.relocatedPath { return URL(fileURLWithPath: path) }
+        if let app, app.isRelocated { return app.installedURL.resolvingSymlinksInPath() }
+        return nil
+    }
+
     /// Path used to fetch the Finder icon, if the bundle can still be reached.
     var iconPath: String? {
         if let app, FileManager.default.fileExists(atPath: app.installedURL.path) {

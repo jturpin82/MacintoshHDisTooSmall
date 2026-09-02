@@ -73,6 +73,7 @@ final class AppState {
     // Presentation
     var errorMessage: String?
     var showSettings = false
+    var showStats = false
     var showDeleteConfirmation = false
     var showForgetConfirmation = false
 
@@ -169,6 +170,54 @@ final class AppState {
         // the bundle it points to, which stays untouched elsewhere.
         let bundleBytes = row.isOrphaned ? 0 : (row.bundleSize ?? 0)
         return (row.name, chosen.count + 1, bundleBytes + selectedSupportBytes)
+    }
+
+    // MARK: - Overview
+
+    struct VolumeUsage: Identifiable, Hashable {
+        let id: String
+        let label: String
+        let bytes: Int64
+    }
+
+    /// Total footprint of apps still in /Applications, wherever they stand
+    /// (bundle on disk plus caches and configuration still there too).
+    var notRelocatedBytes: Int64 {
+        rows.filter { !$0.isRelocated }.reduce(0) { $0 + ($1.size ?? 0) }
+    }
+
+    /// Relocated apps' footprint, grouped by the volume they actually live on
+    /// now — tracked or merely orphaned, both count: either way the space is
+    /// off /Applications. Largest first.
+    var relocatedByVolume: [VolumeUsage] {
+        var totals: [String: (label: String, bytes: Int64)] = [:]
+        for row in rows {
+            guard row.isRelocated, let url = row.relocatedLocationURL else { continue }
+            let (id, label) = Self.volumeIdentity(for: url)
+            totals[id, default: (label, 0)].bytes += row.size ?? 0
+        }
+        return totals.map { VolumeUsage(id: $0.key, label: $0.value.label, bytes: $0.value.bytes) }
+            .sorted { $0.bytes > $1.bytes }
+    }
+
+    /// Relocated total for one volume, or every volume combined when `volumeID` is nil.
+    func relocatedBytes(forVolumeID volumeID: String?) -> Int64 {
+        guard let volumeID else { return relocatedByVolume.reduce(0) { $0 + $1.bytes } }
+        return relocatedByVolume.first { $0.id == volumeID }?.bytes ?? 0
+    }
+
+    /// Identifies the volume a relocated item lives on for grouping — the
+    /// volume's own name when it's mounted, otherwise a best guess from the
+    /// path itself (an unmounted external disk still under /Volumes/<name>).
+    private static func volumeIdentity(for url: URL) -> (id: String, label: String) {
+        if let name = try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName, let name {
+            return (name, name)
+        }
+        let components = url.pathComponents
+        if components.count >= 3, components[1] == "Volumes" {
+            return (components[2], "\(components[2]) (non monté)")
+        }
+        return (url.path, "Emplacement inconnu")
     }
 
     // MARK: - Scanning

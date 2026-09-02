@@ -46,6 +46,9 @@ exactement où c'était.
 - Adopte : une app déjà déplacée par d'autres moyens (script, Finder…) apparaît « Non suivie »
   dans la liste. Le bouton « Considérer comme déplacée » l'ajoute au journal telle quelle — sans
   déplacer un seul fichier — pour pouvoir ensuite la restaurer ou la supprimer depuis l'app.
+- Répartition (bouton dans la barre d'outils) : camembert de l'espace occupé par les apps sur
+  le disque contre celles déplacées (suivies ou simplement orphelines), avec le détail par
+  volume de destination et un filtre pour n'en isoler qu'un.
 
 ## Réglages
 
@@ -108,7 +111,7 @@ app, puisque plusieurs apps partagent désormais les mêmes dossiers de destinat
 ## Compiler
 
 ```bash
-./build.sh 0.2.4
+./build.sh 0.2.5
 ```
 
 Produit `dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.
