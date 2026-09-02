@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - name: Build
+        run: ./build.sh 0.0.0-ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MacintoshHDisTooSmall-ci
+          path: .dist/*.zip
