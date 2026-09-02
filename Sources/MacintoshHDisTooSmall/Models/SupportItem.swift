@@ -36,6 +36,21 @@ struct SupportItem: Identifiable, Hashable {
             }
         }
 
+        /// Top-level folder name under a destination root, mirroring ~/Library
+        /// one level down instead of nesting per app — every app moved to the
+        /// same destination shares these folders.
+        var destinationFolderName: String {
+            switch self {
+            case .applicationSupport: return "ApplicationSupport"
+            case .caches: return "Caches"
+            case .containers: return "Containers"
+            case .logs: return "Logs"
+            case .savedState: return "SavedApplicationState"
+            case .httpStorages: return "HTTPStorages"
+            case .webKit: return "WebKit"
+            }
+        }
+
         var symbolName: String {
             switch self {
             case .applicationSupport: return "folder"

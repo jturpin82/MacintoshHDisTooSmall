@@ -213,7 +213,7 @@ private struct RelocatedSection: View {
                         Image(systemName: "externaldrive.badge.checkmark")
                             .foregroundStyle(.teal)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(PathFormat.short(record.destinationRoot))
+                            Text(PathFormat.short(record.bundleItem?.relocatedPath ?? record.destinationRoot))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Text("Déplacée le \(record.movedAt.formatted(date: .abbreviated, time: .shortened))")
@@ -222,7 +222,8 @@ private struct RelocatedSection: View {
                         }
                         Spacer()
                         Button("Afficher dans le Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([record.destinationRootURL])
+                            let target = record.bundleItem?.relocatedURL ?? record.destinationRootURL
+                            NSWorkspace.shared.activateFileViewerSelecting([target])
                         }
                     }
 

@@ -103,7 +103,9 @@ final class AppState {
         }
         let present = Set(apps.map(\.name))
         for record in records where !present.contains(record.appName) {
-            result.append(AppRow(id: record.destinationRoot,
+            // `record.id` (the app name), not destinationRoot: several apps can
+            // share the same destination, and the row id must stay unique.
+            result.append(AppRow(id: record.id,
                                  name: record.appName,
                                  app: nil,
                                  record: record,
@@ -258,7 +260,7 @@ final class AppState {
                 ledger.add(plan.record)
                 forgetSupportCache(for: app.id)
                 if !createAppSymlink {
-                    selectedRowID = plan.record.destinationRoot
+                    selectedRowID = plan.record.id
                 }
             } onFailure: { [self] in
                 // Keep whatever actually made it across so it stays restorable.
@@ -275,7 +277,7 @@ final class AppState {
         do {
             let operations = try Relocator.planRestore(record: record)
             perform(operations) { [self] in
-                Relocator.pruneEmptyDirectories(at: record.destinationRootURL)
+                Relocator.pruneEmptyDirectories(after: record)
                 ledger.remove(appNamed: record.appName)
                 forgetSupportCache(for: record.bundleItem?.originalPath)
                 selectedRowID = record.bundleItem?.originalPath

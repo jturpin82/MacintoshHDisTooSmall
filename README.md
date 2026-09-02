@@ -9,20 +9,35 @@ exactement où c'était.
 - Liste les apps de `/Applications` et `/Applications/Utilities` avec leur poids réel
   (bundle + caches + configurations), calculé en tâche de fond.
 - Tri par nom (A→Z, Z→A) ou par poids total (croissant, décroissant), filtre et recherche.
-- Déplace le bundle `.app` vers `<destination>/<NomDeLApp>/`.
-- Trouve et déplace les fichiers annexes vers `<destination>/<NomDeLApp>/Support/`, en laissant
-  un lien symbolique à leur place pour que l'app continue de fonctionner :
+- Déplace le bundle `.app` vers `<destination>/Applications/`, et les fichiers annexes vers
+  `<destination>/<Dossier>/`, un dossier par type — miroir de `/Applications` et `~/Library` un
+  niveau plus bas, partagé par toutes les apps envoyées vers cette destination — en laissant un
+  lien symbolique à leur place pour que l'app continue de fonctionner :
 
-  | Emplacement d'origine                  | Déplacé |
-  |----------------------------------------|---------|
-  | `~/Library/Application Support/<app>`  | oui |
-  | `~/Library/Caches/<app>`               | oui |
-  | `~/Library/Containers/<bundle-id>`     | oui |
-  | `~/Library/Logs/<app>`                 | oui |
-  | `~/Library/Saved Application State/…`  | oui |
-  | `~/Library/HTTPStorages/<bundle-id>`   | oui |
-  | `~/Library/WebKit/<bundle-id>`         | oui |
-  | `~/Library/Preferences/<bundle-id>.plist` | **non — voir plus bas** |
+  | Emplacement d'origine                  | Dossier de destination | Déplacé |
+  |----------------------------------------|-------------------------|---------|
+  | `/Applications/<App>.app`              | `Applications/`         | oui |
+  | `~/Library/Application Support/<app>`  | `ApplicationSupport/`   | oui |
+  | `~/Library/Caches/<app>`               | `Caches/`               | oui |
+  | `~/Library/Containers/<bundle-id>`     | `Containers/`           | oui |
+  | `~/Library/Logs/<app>`                 | `Logs/`                 | oui |
+  | `~/Library/Saved Application State/…`  | `SavedApplicationState/`| oui |
+  | `~/Library/HTTPStorages/<bundle-id>`   | `HTTPStorages/`         | oui |
+  | `~/Library/WebKit/<bundle-id>`         | `WebKit/`               | oui |
+  | `~/Library/Preferences/<bundle-id>.plist` | —                    | **non — voir plus bas** |
+
+  Exemple, pour la destination `/Volumes/2To/Apps` :
+
+  ```
+  /Volumes/2To/Apps/
+  ├── Applications/Toto.app
+  ├── ApplicationSupport/Toto
+  ├── Caches/Toto
+  └── Logs/Toto
+  ```
+
+  Les apps déplacées avant la 0.2.2 gardent leur ancienne disposition (un dossier par app) ;
+  seuls les nouveaux déplacements utilisent cette structure partagée.
 
 - Restaure : retire les liens, remet chaque élément à son emplacement d'origine, nettoie le
   dossier de destination.
@@ -72,12 +87,13 @@ exactement où c'était.
 
 Le journal des déplacements est stocké dans
 `~/Library/Application Support/MacintoshHDisTooSmall/ledger.json`, et une copie du manifeste
-est déposée dans chaque dossier de destination (`.macintoshhd-manifest.json`).
+de chaque app est déposée dans `<destination>/.macintoshhd/<NomDeLApp>.json` — un fichier par
+app, puisque plusieurs apps partagent désormais les mêmes dossiers de destination.
 
 ## Compiler
 
 ```bash
-./build.sh 0.2.1
+./build.sh 0.2.2
 ```
 
 Produit `dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.

@@ -63,13 +63,16 @@ enum Relocator {
             throw RelocationError.missingSource(app.installedURL.path)
         }
 
-        let root = destination.appendingPathComponent(app.name)
-        let bundleTarget = root.appendingPathComponent(app.installedURL.lastPathComponent)
+        // Every app moved to the same destination shares these top-level
+        // folders, mirroring /Applications and ~/Library one level down
+        // rather than nesting everything under a per-app directory.
+        let appsFolder = destination.appendingPathComponent("Applications")
+        let bundleTarget = appsFolder.appendingPathComponent(app.installedURL.lastPathComponent)
         guard !fm.fileExists(atPath: bundleTarget.path) else {
             throw RelocationError.targetExists(bundleTarget.path)
         }
 
-        var operations: [FileOperation] = [.makeDirectory(root)]
+        var operations: [FileOperation] = [.makeDirectory(appsFolder)]
         var items: [MovedItem] = []
 
         let bundleSize = FileSize.onDisk(of: app.installedURL)
@@ -83,17 +86,16 @@ enum Relocator {
                                symlinkCreated: createAppSymlink,
                                bytes: bundleSize))
 
-        let supportRoot = root.appendingPathComponent("Support")
         for item in supportItems {
-            let directory = supportRoot.appendingPathComponent(item.kind.librarySubpath)
-            let target = directory.appendingPathComponent(item.url.lastPathComponent)
+            let folder = destination.appendingPathComponent(item.kind.destinationFolderName)
+            let target = folder.appendingPathComponent(item.url.lastPathComponent)
             guard fm.fileExists(atPath: item.url.path) else {
                 throw RelocationError.missingSource(item.url.path)
             }
             guard !fm.fileExists(atPath: target.path) else {
                 throw RelocationError.targetExists(target.path)
             }
-            operations.append(.makeDirectory(directory))
+            operations.append(.makeDirectory(folder))
             operations.append(.move(from: item.url, to: target))
             // Support files are always symlinked back, otherwise the app just
             // recreates them and nothing is reclaimed.
@@ -107,7 +109,7 @@ enum Relocator {
 
         let record = MoveRecord(appName: app.name,
                                 bundleID: app.bundleID,
-                                destinationRoot: root.path,
+                                destinationRoot: destination.standardizedFileURL.path,
                                 movedAt: Date(),
                                 items: items)
         return (operations, record)
@@ -137,10 +139,23 @@ enum Relocator {
         return operations
     }
 
-    /// Best-effort tidy-up of the now-empty <destination>/<AppName> folder.
-    static func pruneEmptyDirectories(at root: URL) {
+    /// Best-effort tidy-up after a restore: this app's manifest, then any
+    /// directory left empty by the items that just moved back. `root` — the
+    /// destination folder the user configured — is deliberately never removed
+    /// itself, since several apps can share it (Applications, ApplicationSupport,
+    /// Caches… hold every app moved to that destination, not just this one).
+    static func pruneEmptyDirectories(after record: MoveRecord) {
         let fm = FileManager.default
-        try? fm.removeItem(at: root.appendingPathComponent(manifestName))
+        let root = record.destinationRootURL
+
+        try? fm.removeItem(at: manifestURL(for: record))
+        // Apps relocated before 0.2.2 wrote a flat manifest name directly at
+        // their (then per-app-exclusive) root; drop it too if still there.
+        try? fm.removeItem(at: root.appendingPathComponent(legacyManifestName))
+        let metadataDir = root.appendingPathComponent(metadataFolderName)
+        if let contents = try? fm.contentsOfDirectory(atPath: metadataDir.path), contents.isEmpty {
+            try? fm.removeItem(at: metadataDir)
+        }
 
         guard let enumerator = fm.enumerator(at: root,
                                              includingPropertiesForKeys: [.isDirectoryKey],
@@ -150,7 +165,7 @@ enum Relocator {
             .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
             .sorted { $0.pathComponents.count > $1.pathComponents.count }
 
-        for directory in directories + [root] {
+        for directory in directories {
             if let contents = try? fm.contentsOfDirectory(atPath: directory.path), contents.isEmpty {
                 try? fm.removeItem(at: directory)
             }
@@ -174,7 +189,8 @@ enum Relocator {
     }
 
     /// Sends a relocated app to the Trash: the links left behind go first, then
-    /// the whole destination folder.
+    /// each moved item individually — never the shared destination folder as a
+    /// whole, since other apps moved to the same destination live in it too.
     static func planDeletion(record: MoveRecord) throws -> [FileOperation] {
         let fm = FileManager.default
         var operations: [FileOperation] = []
@@ -187,21 +203,28 @@ enum Relocator {
             }
         }
 
-        if fm.fileExists(atPath: record.destinationRoot) {
-            operations.append(.trash(record.destinationRootURL))
-        } else {
-            for item in record.items where fm.fileExists(atPath: item.relocatedPath) {
-                operations.append(.trash(item.relocatedURL))
-            }
-        }
+        let trashed = record.items.filter { fm.fileExists(atPath: $0.relocatedPath) }
+        operations.append(contentsOf: trashed.map { .trash($0.relocatedURL) })
 
-        guard !operations.isEmpty else { throw RelocationError.missingSource(record.destinationRoot) }
+        guard !trashed.isEmpty else { throw RelocationError.missingSource(record.destinationRoot) }
         return operations
     }
 
     // MARK: - Manifest
 
-    static let manifestName = ".macintoshhd-manifest.json"
+    private static let metadataFolderName = ".macintoshhd"
+    private static let legacyManifestName = ".macintoshhd-manifest.json"
+
+    /// Where the read-only manifest for one app's relocation is written, kept
+    /// outside the moved content and namespaced per app: several apps now
+    /// share the same top-level Applications / ApplicationSupport / Caches
+    /// folders under one destination, so they can't all write the same file.
+    private static func manifestURL(for record: MoveRecord) -> URL {
+        let safeName = record.appName.replacingOccurrences(of: "/", with: "-")
+        return record.destinationRootURL
+            .appendingPathComponent(metadataFolderName)
+            .appendingPathComponent("\(safeName).json")
+    }
 
     /// Drops a copy of the record next to the moved files so the move stays
     /// readable even if the ledger is lost. Best effort only.
@@ -210,6 +233,9 @@ enum Relocator {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(record) else { return }
-        try? data.write(to: record.destinationRootURL.appendingPathComponent(manifestName))
+        let url = manifestURL(for: record)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                  withIntermediateDirectories: true)
+        try? data.write(to: url)
     }
 }

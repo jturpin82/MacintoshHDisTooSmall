@@ -24,7 +24,9 @@ struct MovedItem: Codable, Hashable, Identifiable {
 struct MoveRecord: Codable, Hashable, Identifiable {
     let appName: String
     let bundleID: String?
-    /// <destination>/<appName>
+    /// Destination folder the user chose for this move. Several apps can share
+    /// the same value: each item's own `relocatedPath` is what actually
+    /// changes between them.
     let destinationRoot: String
     let movedAt: Date
     var items: [MovedItem]

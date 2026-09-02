@@ -20,7 +20,7 @@ struct SettingsSheet: View {
                                  : PathFormat.short(state.destinationPath))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
-                            Text("Chaque app obtient son propre sous-dossier ici.")
+                            Text("Toutes les apps déplacées ici partagent Applications, ApplicationSupport, Caches…")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
