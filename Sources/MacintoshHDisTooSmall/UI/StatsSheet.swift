@@ -82,14 +82,23 @@ struct StatsSheet: View {
                         Text("Par volume de destination")
                             .font(.subheadline.weight(.medium))
                         ForEach(volumes) { volume in
-                            HStack {
-                                Text(volume.label)
-                                Spacer()
-                                Text(FileSize.format(volume.bytes))
-                                    .monospacedDigit()
-                                    .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(volume.label)
+                                    Spacer()
+                                    Text(FileSize.format(volume.bytes))
+                                        .monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                }
+                                .font(.callout)
+                                if let total = volume.totalCapacity {
+                                    Text(volume.availableCapacity.map {
+                                        "\(FileSize.format($0)) disponible sur \(FileSize.format(total))"
+                                    } ?? "\(FileSize.format(total)) au total")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
                             }
-                            .font(.callout)
                         }
                     }
                 }

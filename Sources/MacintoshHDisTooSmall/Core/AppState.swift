@@ -178,6 +178,10 @@ final class AppState {
         let id: String
         let label: String
         let bytes: Int64
+        /// Total and available space on the volume itself, `nil` when the
+        /// volume isn't currently mounted (so its capacity can't be read).
+        let totalCapacity: Int64?
+        let availableCapacity: Int64?
     }
 
     /// Total footprint of apps still in /Applications, wherever they stand
@@ -190,14 +194,18 @@ final class AppState {
     /// now — tracked or merely orphaned, both count: either way the space is
     /// off /Applications. Largest first.
     var relocatedByVolume: [VolumeUsage] {
-        var totals: [String: (label: String, bytes: Int64)] = [:]
+        var totals: [String: (label: String, bytes: Int64, url: URL)] = [:]
         for row in rows {
             guard row.isRelocated, let url = row.relocatedLocationURL else { continue }
             let (id, label) = Self.volumeIdentity(for: url)
-            totals[id, default: (label, 0)].bytes += row.size ?? 0
+            totals[id, default: (label, 0, url)].bytes += row.size ?? 0
         }
-        return totals.map { VolumeUsage(id: $0.key, label: $0.value.label, bytes: $0.value.bytes) }
-            .sorted { $0.bytes > $1.bytes }
+        return totals.map { key, value in
+            let (total, available) = Self.volumeCapacity(for: value.url)
+            return VolumeUsage(id: key, label: value.label, bytes: value.bytes,
+                                totalCapacity: total, availableCapacity: available)
+        }
+        .sorted { $0.bytes > $1.bytes }
     }
 
     /// Relocated total for one volume, or every volume combined when `volumeID` is nil.
@@ -218,6 +226,15 @@ final class AppState {
             return (components[2], "\(components[2]) (non monté)")
         }
         return (url.path, "Emplacement inconnu")
+    }
+
+    /// Total and available space on the volume containing `url`, or `nil`
+    /// for either when the volume isn't currently mounted.
+    private static func volumeCapacity(for url: URL) -> (total: Int64?, available: Int64?) {
+        let values = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
+        let total = values?.volumeTotalCapacity.map { Int64($0) }
+        let available = values?.volumeAvailableCapacity.map { Int64($0) }
+        return (total, available)
     }
 
     // MARK: - Scanning
