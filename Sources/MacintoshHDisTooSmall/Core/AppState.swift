@@ -68,6 +68,7 @@ final class AppState {
     var errorMessage: String?
     var showSettings = false
     var showDeleteConfirmation = false
+    var showForgetConfirmation = false
 
     // Preferences
     var destinationPath: String {
@@ -315,6 +316,17 @@ final class AppState {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Drops a ledger entry without touching a single file. The escape hatch for
+    /// an entry that no longer describes reality — an app moved back by hand, or
+    /// a move that left the record inconsistent.
+    func forgetSelectedRecord() {
+        guard let row = selectedRow, let record = row.record else { return }
+        ledger.remove(appNamed: record.appName)
+        forgetSupportCache(for: row.app?.id)
+        selectedRowID = row.app?.id
+        refresh()
     }
 
     private func forgetSupportCache(for appID: String?) {

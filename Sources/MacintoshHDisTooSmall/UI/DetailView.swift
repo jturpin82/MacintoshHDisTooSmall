@@ -278,6 +278,15 @@ private struct RelocatedSection: View {
                     .foregroundStyle(.secondary)
                 Spacer()
 
+                Menu {
+                    Button("Oublier cette entrée…") { state.showForgetConfirmation = true }
+                } label: {
+                    Label("Autres actions", systemImage: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .disabled(state.isBusy)
+
                 Button(role: .destructive) {
                     state.showDeleteConfirmation = true
                 } label: {

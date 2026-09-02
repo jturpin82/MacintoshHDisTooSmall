@@ -56,6 +56,15 @@ exactement où c'était.
 - **Accès disque complet.** Quelques sous-dossiers de `~/Library` sont protégés par TCC. Si un
   déplacement échoue là-dessus, accorder « Accès complet au disque » à l'app dans
   Réglages Système → Confidentialité et sécurité.
+- **Le déplacement inter-volumes ne préserve ni le propriétaire ni les attributs étendus.**
+  Une app de `/Applications` appartient souvent à `root:wheel` : la recopier à l'identique
+  demanderait des droits root, et échouerait quand même sur `com.apple.provenance`, un
+  attribut étendu que macOS refuse d'écrire même à root. La copie se fait donc sans eux
+  (`cp -RX`) — l'app t'appartiendra et se lancera normalement. À l'intérieur d'un même
+  volume, c'est un simple renommage.
+- **Oublier une entrée.** Si le journal ne décrit plus la réalité (app remise en place à la
+  main, déplacement interrompu), le menu « … » du panneau d'une app déplacée permet d'oublier
+  son entrée sans toucher au moindre fichier.
 - **Suppression et droits root.** La suppression passe par la corbeille, donc reste réversible.
   Exception : si l'opération réclame les droits administrateur, elle est rejouée en `rm -rf` —
   la corbeille n'est pas utilisable en root. Le dialogue de confirmation le rappelle.
@@ -68,7 +77,7 @@ est déposée dans chaque dossier de destination (`.macintoshhd-manifest.json`).
 ## Compiler
 
 ```bash
-./build.sh 0.2.0
+./build.sh 0.2.1
 ```
 
 Produit `dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.

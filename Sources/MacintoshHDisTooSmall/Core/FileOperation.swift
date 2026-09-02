@@ -30,7 +30,17 @@ enum FileOperation {
         case .makeDirectory(let url):
             try fm.createDirectory(at: url, withIntermediateDirectories: true)
         case .move(let from, let to):
-            try fm.moveItem(at: from, to: to)
+            if Self.isSameVolume(from, to) {
+                try fm.moveItem(at: from, to: to)
+            } else {
+                // FileManager's cross-volume move preserves ownership and
+                // extended attributes, and neither survives a copy out of
+                // /Applications: a user cannot chown to root, and
+                // com.apple.provenance is refused even to root. None of it is
+                // needed for the app to run, so copy without them.
+                try Self.runTool("/bin/cp", ["-RX", from.path, to.path])
+                try fm.removeItem(at: from)
+            }
         case .makeSymlink(let link, let target):
             try fm.createSymbolicLink(at: link, withDestinationURL: target)
         case .removeSymlink(let url):
@@ -53,7 +63,11 @@ enum FileOperation {
         case .makeDirectory(let url):
             return "/bin/mkdir -p \(Self.quote(url.path))"
         case .move(let from, let to):
-            return "/bin/mv -f \(Self.quote(from.path)) \(Self.quote(to.path))"
+            if Self.isSameVolume(from, to) {
+                return "/bin/mv -f \(Self.quote(from.path)) \(Self.quote(to.path))"
+            }
+            return "/bin/cp -RX \(Self.quote(from.path)) \(Self.quote(to.path))"
+                + " && /bin/rm -rf \(Self.quote(from.path))"
         case .makeSymlink(let link, let target):
             return "/bin/ln -s \(Self.quote(target.path)) \(Self.quote(link.path))"
         case .removeSymlink(let url):
@@ -63,6 +77,43 @@ enum FileOperation {
             // root cannot use the Trash, so an elevated deletion is permanent.
             return "/bin/rm -rf \(Self.quote(url.path))"
         }
+    }
+
+    /// A rename only works inside one volume; the destination does not exist
+    /// yet, so its parent answers for it.
+    private static func isSameVolume(_ from: URL, _ to: URL) -> Bool {
+        let keys: Set<URLResourceKey> = [.volumeIdentifierKey]
+        guard let source = try? from.resourceValues(forKeys: keys).volumeIdentifier,
+              let target = try? to.deletingLastPathComponent()
+                  .resourceValues(forKeys: keys).volumeIdentifier
+        else { return false }
+        return source.isEqual(target)
+    }
+
+    /// Runs a command line tool, turning a non-zero exit into an error that
+    /// keeps the tool's own message and says whether privileges could help.
+    private static func runTool(_ executable: String, _ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+
+        try process.run()
+        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus != 0 else { return }
+
+        let message = String(data: errorData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let denied = message.localizedCaseInsensitiveContains("not permitted")
+            || message.localizedCaseInsensitiveContains("denied")
+        throw NSError(domain: NSPOSIXErrorDomain,
+                      code: denied ? Int(EPERM) : Int(EIO),
+                      userInfo: [NSLocalizedDescriptionKey: message.isEmpty
+                                 ? "\(executable) a échoué (code \(process.terminationStatus))"
+                                 : message])
     }
 
     private static func quote(_ path: String) -> String {

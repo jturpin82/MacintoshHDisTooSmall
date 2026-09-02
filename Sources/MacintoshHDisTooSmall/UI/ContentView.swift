@@ -53,6 +53,14 @@ struct ContentView: View {
                 Text("\(summary.itemCount) élément(s) — \(FileSize.format(summary.bytes)). Si l'app appartient à root, une authentification sera demandée et la suppression sera alors définitive : la corbeille n'est pas utilisable en mode privilégié.")
             }
         }
+        .confirmationDialog("Oublier le suivi de \(state.selectedRow?.name ?? "cette app") ?",
+                            isPresented: $state.showForgetConfirmation,
+                            titleVisibility: .visible) {
+            Button("Oublier", role: .destructive) { state.forgetSelectedRecord() }
+            Button("Annuler", role: .cancel) {}
+        } message: {
+            Text("Aucun fichier n'est touché : l'app et ses fichiers annexes restent exactement où ils sont. Seule disparaît la mémoire du déplacement, donc la possibilité de le défaire depuis cette app.")
+        }
         .alert("Opération impossible", isPresented: errorPresented) {
             Button("OK", role: .cancel) {}
         } message: {
