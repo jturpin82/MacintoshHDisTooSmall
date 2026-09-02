@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 
+@MainActor
 struct SettingsSheet: View {
     @Bindable var state: AppState
     @Environment(\.dismiss) private var dismiss

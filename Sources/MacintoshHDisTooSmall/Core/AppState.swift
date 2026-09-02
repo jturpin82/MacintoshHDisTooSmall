@@ -117,10 +117,10 @@ final class AppState {
         apps = scanned
         isScanning = false
 
-        Task.detached(priority: .utility) { [weak self] in
+        Task.detached(priority: .utility) { [self] in
             for app in scanned {
                 let size = FileSize.onDisk(of: app.installedURL)
-                await MainActor.run { self?.bundleSizes[app.id] = size }
+                await MainActor.run { self.bundleSizes[app.id] = size }
             }
         }
     }
@@ -139,10 +139,10 @@ final class AppState {
         selectedSupportIDs = []
         isLoadingSupport = true
 
-        Task.detached(priority: .userInitiated) { [weak self] in
+        Task.detached(priority: .userInitiated) { [self] in
             let items = SupportFileLocator.locate(app: app)
             await MainActor.run {
-                guard let self, self.supportItemsAppID == app.id else { return }
+                guard self.supportItemsAppID == app.id else { return }
                 self.supportItems = items
                 self.selectedSupportIDs = Set(items.map(\.id))
                 self.isLoadingSupport = false
@@ -232,21 +232,21 @@ final class AppState {
         operationProgress = 0
         operationLabel = "Préparation…"
 
-        Task.detached(priority: .userInitiated) { [weak self] in
-            var failure: Error?
+        Task.detached(priority: .userInitiated) { [self] in
+            let failure: Error?
             do {
                 try FileOperation.execute(operations) { label, fraction in
                     Task { @MainActor in
-                        self?.operationLabel = label
-                        self?.operationProgress = fraction
+                        self.operationLabel = label
+                        self.operationProgress = fraction
                     }
                 }
+                failure = nil
             } catch {
                 failure = error
             }
 
             await MainActor.run {
-                guard let self else { return }
                 if let failure {
                     onFailure()
                     self.errorMessage = failure.localizedDescription
