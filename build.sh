@@ -1,12 +1,12 @@
 #!/bin/bash
-# Builds MacintoshHDisTooSmall.app (universal) into .dist/ and zips it.
+# Builds MacintoshHDisTooSmall.app (universal) into dist/ and zips it.
 # Usage: ./build.sh [version]
 set -euo pipefail
 
 VERSION="${1:-0.1}"
 NAME="MacintoshHDisTooSmall"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DIST="$ROOT/.dist"
+DIST="$ROOT/dist"
 APP="$DIST/$NAME.app"
 
 rm -rf "$DIST"

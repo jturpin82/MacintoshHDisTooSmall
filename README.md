@@ -62,7 +62,7 @@ est déposée dans chaque dossier de destination (`.macintoshhd-manifest.json`).
 ./build.sh 0.1
 ```
 
-Produit `.dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.
+Produit `dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.
 Nécessite Xcode / les Command Line Tools (Swift 5.9+).
 
 ## Installer depuis une release

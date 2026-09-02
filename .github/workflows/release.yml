@@ -20,7 +20,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: MacintoshHDisTooSmall ${{ github.ref_name }}
-          files: .dist/*.zip
+          files: dist/*.zip
           body: |
             Application macOS (universelle, macOS 14+) pour déplacer des apps de `/Applications` vers un autre volume, caches et configurations compris.
 
