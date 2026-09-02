@@ -19,6 +19,16 @@ struct ContentView: View {
                 .disabled(state.isBusy)
             }
             ToolbarItem {
+                Menu {
+                    Picker("Trier", selection: $state.sortOrder) {
+                        ForEach(AppState.SortOrder.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label("Trier", systemImage: "arrow.up.arrow.down")
+                }
+            }
+            ToolbarItem {
                 Button { state.showSettings = true } label: {
                     Label("Réglages", systemImage: "gearshape")
                 }
@@ -32,6 +42,16 @@ struct ContentView: View {
         }
         .sheet(isPresented: $state.showSettings) {
             SettingsSheet(state: state)
+        }
+        .confirmationDialog("Supprimer \(state.deletionSummary?.name ?? "cette app") ?",
+                            isPresented: $state.showDeleteConfirmation,
+                            titleVisibility: .visible) {
+            Button("Mettre à la corbeille", role: .destructive) { state.deleteSelected() }
+            Button("Annuler", role: .cancel) {}
+        } message: {
+            if let summary = state.deletionSummary {
+                Text("\(summary.itemCount) élément(s) — \(FileSize.format(summary.bytes)). Si l'app appartient à root, une authentification sera demandée et la suppression sera alors définitive : la corbeille n'est pas utilisable en mode privilégié.")
+            }
         }
         .alert("Opération impossible", isPresented: errorPresented) {
             Button("OK", role: .cancel) {}

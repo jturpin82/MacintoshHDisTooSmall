@@ -60,17 +60,7 @@ struct SettingsSheet: View {
     }
 
     private func chooseDestination() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = true
-        panel.prompt = "Choisir"
-        panel.message = "Dossier qui accueillera les applications déplacées"
-        if !state.destinationPath.isEmpty {
-            panel.directoryURL = URL(fileURLWithPath: state.destinationPath)
-        }
-        if panel.runModal() == .OK, let url = panel.url {
+        if let url = DestinationPicker.choose(startingAt: state.destinationPath) {
             state.destinationPath = url.path
         }
     }

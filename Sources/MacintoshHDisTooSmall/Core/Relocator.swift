@@ -8,6 +8,7 @@ enum RelocationError: LocalizedError {
     case targetExists(String)
     case missingSource(String)
     case originalOccupied(String)
+    case trashUnavailable(String)
 
     var errorDescription: String? {
         switch self {
@@ -25,6 +26,8 @@ enum RelocationError: LocalizedError {
             return "Introuvable : \(path)"
         case .originalOccupied(let path):
             return "Un vrai fichier occupe l'emplacement d'origine : \(path). L'app a probablement été réinstallée."
+        case .trashUnavailable(let path):
+            return "Ce volume n'a pas de corbeille (exFAT, NTFS…), impossible d'y mettre \(path)."
         }
     }
 }
@@ -145,6 +148,48 @@ enum Relocator {
                 try? fm.removeItem(at: directory)
             }
         }
+    }
+
+    // MARK: - Deleting
+
+    /// Sends an app still living in /Applications, plus the support items the
+    /// user ticked, to the Trash.
+    static func planDeletion(app: InstalledApp, supportItems: [SupportItem]) throws -> [FileOperation] {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: app.installedURL.path) else {
+            throw RelocationError.missingSource(app.installedURL.path)
+        }
+        var operations: [FileOperation] = [.trash(app.installedURL)]
+        for item in supportItems where fm.fileExists(atPath: item.url.path) {
+            operations.append(.trash(item.url))
+        }
+        return operations
+    }
+
+    /// Sends a relocated app to the Trash: the links left behind go first, then
+    /// the whole destination folder.
+    static func planDeletion(record: MoveRecord) throws -> [FileOperation] {
+        let fm = FileManager.default
+        var operations: [FileOperation] = []
+
+        for item in record.items where item.symlinkCreated {
+            let original = item.originalURL
+            // Never touch a real bundle: the app may have been reinstalled since.
+            if (try? original.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true {
+                operations.append(.removeSymlink(original))
+            }
+        }
+
+        if fm.fileExists(atPath: record.destinationRoot) {
+            operations.append(.trash(record.destinationRootURL))
+        } else {
+            for item in record.items where fm.fileExists(atPath: item.relocatedPath) {
+                operations.append(.trash(item.relocatedURL))
+            }
+        }
+
+        guard !operations.isEmpty else { throw RelocationError.missingSource(record.destinationRoot) }
+        return operations
     }
 
     // MARK: - Manifest

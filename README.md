@@ -6,7 +6,9 @@ exactement où c'était.
 
 ## Ce que fait l'app
 
-- Liste les apps de `/Applications` et `/Applications/Utilities` avec leur taille sur disque.
+- Liste les apps de `/Applications` et `/Applications/Utilities` avec leur poids réel
+  (bundle + caches + configurations), calculé en tâche de fond.
+- Tri par nom (A→Z, Z→A) ou par poids total (croissant, décroissant), filtre et recherche.
 - Déplace le bundle `.app` vers `<destination>/<NomDeLApp>/`.
 - Trouve et déplace les fichiers annexes vers `<destination>/<NomDeLApp>/Support/`, en laissant
   un lien symbolique à leur place pour que l'app continue de fonctionner :
@@ -24,10 +26,14 @@ exactement où c'était.
 
 - Restaure : retire les liens, remet chaque élément à son emplacement d'origine, nettoie le
   dossier de destination.
+- Supprime : envoie à la corbeille le bundle et les fichiers annexes cochés, que l'app soit
+  encore dans `/Applications` ou déjà déplacée (les liens laissés derrière sont retirés).
 
 ## Réglages
 
-- **Destination** : n'importe quel dossier hors de `/Applications`, `/System` et `/Library`.
+- **Destination par défaut** : n'importe quel dossier hors de `/Applications`, `/System` et
+  `/Library`. C'est celle que propose le bouton « Déplacer » ; le menu à côté du bouton permet
+  d'envoyer une app précise ailleurs sans changer le réglage.
 - **Lien symbolique dans `/Applications`** (activé par défaut) : l'app reste visible et
   lançable depuis le Dock, Spotlight et le Launchpad. Désactivé, `/Applications` est
   réellement vidé et l'app se lance depuis son nouvel emplacement. Les caches et
@@ -50,6 +56,9 @@ exactement où c'était.
 - **Accès disque complet.** Quelques sous-dossiers de `~/Library` sont protégés par TCC. Si un
   déplacement échoue là-dessus, accorder « Accès complet au disque » à l'app dans
   Réglages Système → Confidentialité et sécurité.
+- **Suppression et droits root.** La suppression passe par la corbeille, donc reste réversible.
+  Exception : si l'opération réclame les droits administrateur, elle est rejouée en `rm -rf` —
+  la corbeille n'est pas utilisable en root. Le dialogue de confirmation le rappelle.
 - L'app n'est pas sandboxée (elle doit écrire dans `/Applications` et `~/Library`).
 
 Le journal des déplacements est stocké dans
@@ -59,7 +68,7 @@ est déposée dans chaque dossier de destination (`.macintoshhd-manifest.json`).
 ## Compiler
 
 ```bash
-./build.sh 0.1
+./build.sh 0.2.0
 ```
 
 Produit `dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.

@@ -7,7 +7,16 @@ struct AppRow: Identifiable, Hashable {
     let name: String
     let app: InstalledApp?
     let record: MoveRecord?
-    let size: Int64?
+    /// Size of the .app bundle alone.
+    let bundleSize: Int64?
+    /// Combined size of the caches and configuration files that belong to it.
+    let supportSize: Int64?
+
+    /// What the app really costs: bundle plus everything that comes with it.
+    var size: Int64? {
+        guard bundleSize != nil || supportSize != nil else { return nil }
+        return (bundleSize ?? 0) + (supportSize ?? 0)
+    }
 
     var isRelocated: Bool { record != nil }
     var bundleID: String? { app?.bundleID ?? record?.bundleID }

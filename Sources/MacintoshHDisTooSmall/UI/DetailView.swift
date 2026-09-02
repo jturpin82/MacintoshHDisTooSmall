@@ -71,7 +71,7 @@ private struct MoveSection: View {
                     Image(systemName: "externaldrive.fill")
                         .foregroundStyle(.teal)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(state.destinationPath.isEmpty ? "Aucune destination choisie" : PathFormat.short(state.destinationPath))
+                        Text(state.destinationPath.isEmpty ? "Aucune destination par défaut" : PathFormat.short(state.destinationPath))
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Text(state.createAppSymlink
@@ -85,7 +85,7 @@ private struct MoveSection: View {
                 }
                 .padding(4)
             } label: {
-                Label("Destination", systemImage: "arrow.right.circle")
+                Label("Destination par défaut", systemImage: "arrow.right.circle")
             }
 
             GroupBox {
@@ -118,25 +118,48 @@ private struct MoveSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            HStack {
+            HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("À libérer : \(FileSize.format((row.size ?? 0) + state.selectedSupportBytes))")
+                    Text("À libérer : \(FileSize.format((row.bundleSize ?? 0) + state.selectedSupportBytes))")
                         .font(.headline)
                     Text("bundle + \(state.selectedSupportIDs.count) élément(s) annexe(s)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button {
-                    state.relocateSelected()
+
+                Button(role: .destructive) {
+                    state.showDeleteConfirmation = true
+                } label: {
+                    Label("Supprimer…", systemImage: "trash")
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .controlSize(.large)
+                .disabled(state.isBusy)
+
+                // Split button: the configured destination on click, another one
+                // through the menu.
+                Menu {
+                    Button("Choisir un autre dossier…") {
+                        if let url = DestinationPicker.choose(startingAt: state.destinationPath) {
+                            state.relocateSelected(to: url)
+                        }
+                    }
                 } label: {
                     Label("Déplacer", systemImage: "arrow.right.doc.on.clipboard")
-                        .frame(minWidth: 90)
+                } primaryAction: {
+                    if let destination = state.defaultDestination {
+                        state.relocateSelected(to: destination)
+                    } else if let url = DestinationPicker.choose(startingAt: nil) {
+                        state.relocateSelected(to: url)
+                    }
                 }
-                .keyboardShortcut(.defaultAction)
-                .controlSize(.large)
+                .menuStyle(.button)
                 .buttonStyle(.borderedProminent)
-                .disabled(state.destinationPath.isEmpty || state.isBusy)
+                .controlSize(.large)
+                .fixedSize()
+                .disabled(state.isBusy)
             }
         }
     }
@@ -249,11 +272,22 @@ private struct RelocatedSection: View {
                 Label("Éléments déplacés", systemImage: "list.bullet")
             }
 
-            HStack {
+            HStack(spacing: 10) {
                 Text("Restaurer remet chaque élément à son emplacement d'origine.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+
+                Button(role: .destructive) {
+                    state.showDeleteConfirmation = true
+                } label: {
+                    Label("Supprimer…", systemImage: "trash")
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .controlSize(.large)
+                .disabled(state.isBusy)
+
                 Button {
                     state.restoreSelected()
                 } label: {

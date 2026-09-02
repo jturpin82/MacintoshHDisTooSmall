@@ -16,21 +16,42 @@ final class AppState {
         }
     }
 
+    enum SortOrder: String, CaseIterable, Identifiable {
+        case nameAscending, nameDescending, sizeDescending, sizeAscending
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .nameAscending: return "Nom (A → Z)"
+            case .nameDescending: return "Nom (Z → A)"
+            case .sizeDescending: return "Taille (décroissante)"
+            case .sizeAscending: return "Taille (croissante)"
+            }
+        }
+    }
+
     private enum Keys {
         static let destination = "destinationPath"
         static let createAppSymlink = "createAppSymlink"
+        static let sortOrder = "sortOrder"
     }
 
     // Scan results
     private(set) var apps: [InstalledApp] = []
     private(set) var records: [MoveRecord] = []
     private(set) var bundleSizes: [String: Int64] = [:]
+    private(set) var supportSizes: [String: Int64] = [:]
     private(set) var isScanning = false
+    /// Support items found by the background pass, reused when an app is selected.
+    private var supportCache: [String: [SupportItem]] = [:]
+    private var sizingTask: Task<Void, Never>?
 
     // Selection
     var selectedRowID: AppRow.ID?
     var searchText = ""
     var filter: Filter = .all
+    var sortOrder: SortOrder = .nameAscending {
+        didSet { UserDefaults.standard.set(sortOrder.rawValue, forKey: Keys.sortOrder) }
+    }
 
     // Support files of the selected app
     private(set) var supportItems: [SupportItem] = []
@@ -46,6 +67,7 @@ final class AppState {
     // Presentation
     var errorMessage: String?
     var showSettings = false
+    var showDeleteConfirmation = false
 
     // Preferences
     var destinationPath: String {
@@ -61,17 +83,22 @@ final class AppState {
         let defaults = UserDefaults.standard
         destinationPath = defaults.string(forKey: Keys.destination) ?? ""
         createAppSymlink = defaults.object(forKey: Keys.createAppSymlink) as? Bool ?? true
+        sortOrder = defaults.string(forKey: Keys.sortOrder)
+            .flatMap(SortOrder.init(rawValue:)) ?? .nameAscending
     }
 
     // MARK: - Derived state
 
     var rows: [AppRow] {
         var result = apps.map { app in
-            AppRow(id: app.id,
-                   name: app.name,
-                   app: app,
-                   record: ledger.record(forAppNamed: app.name),
-                   size: ledger.record(forAppNamed: app.name)?.totalBytes ?? bundleSizes[app.id])
+            let record = ledger.record(forAppNamed: app.name)
+            return AppRow(id: app.id,
+                          name: app.name,
+                          app: app,
+                          record: record,
+                          bundleSize: record?.bundleItem?.bytes ?? bundleSizes[app.id],
+                          supportSize: record.map { $0.totalBytes - ($0.bundleItem?.bytes ?? 0) }
+                              ?? supportSizes[app.id])
         }
         let present = Set(apps.map(\.name))
         for record in records where !present.contains(record.appName) {
@@ -79,13 +106,14 @@ final class AppState {
                                  name: record.appName,
                                  app: nil,
                                  record: record,
-                                 size: record.totalBytes))
+                                 bundleSize: record.bundleItem?.bytes,
+                                 supportSize: record.totalBytes - (record.bundleItem?.bytes ?? 0)))
         }
         return result.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     var visibleRows: [AppRow] {
-        rows.filter { row in
+        let filtered = rows.filter { row in
             switch filter {
             case .all: return true
             case .onDisk: return !row.isRelocated
@@ -93,6 +121,17 @@ final class AppState {
             }
         }
         .filter { searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText) }
+
+        switch sortOrder {
+        case .nameAscending:
+            return filtered
+        case .nameDescending:
+            return filtered.reversed()
+        case .sizeDescending:
+            return filtered.sorted { ($0.size ?? 0) > ($1.size ?? 0) }
+        case .sizeAscending:
+            return filtered.sorted { ($0.size ?? 0) < ($1.size ?? 0) }
+        }
     }
 
     var selectedRow: AppRow? {
@@ -108,6 +147,16 @@ final class AppState {
         supportItems.filter { selectedSupportIDs.contains($0.id) }.reduce(0) { $0 + $1.size }
     }
 
+    /// What a deletion is about to send to the Trash, for the confirmation dialog.
+    var deletionSummary: (name: String, itemCount: Int, bytes: Int64)? {
+        guard let row = selectedRow else { return nil }
+        if let record = row.record {
+            return (row.name, record.items.count, record.totalBytes)
+        }
+        let chosen = supportItems.filter { selectedSupportIDs.contains($0.id) }
+        return (row.name, chosen.count + 1, (row.bundleSize ?? 0) + selectedSupportBytes)
+    }
+
     // MARK: - Scanning
 
     func refresh() {
@@ -117,10 +166,22 @@ final class AppState {
         apps = scanned
         isScanning = false
 
-        Task.detached(priority: .utility) { [self] in
+        // Sizing walks the whole bundle and every support directory, so it runs
+        // in the background and publishes results app by app. A refresh mid-pass
+        // cancels the previous one rather than stacking a second full walk.
+        sizingTask?.cancel()
+        sizingTask = Task.detached(priority: .utility) { [self] in
             for app in scanned {
-                let size = FileSize.onDisk(of: app.installedURL)
-                await MainActor.run { self.bundleSizes[app.id] = size }
+                if Task.isCancelled { return }
+                let bundleSize = FileSize.onDisk(of: app.installedURL)
+                let items = SupportFileLocator.locate(app: app)
+                let supportSize = items.reduce(0) { $0 + $1.size }
+                if Task.isCancelled { return }
+                await MainActor.run {
+                    self.bundleSizes[app.id] = bundleSize
+                    self.supportSizes[app.id] = supportSize
+                    self.supportCache[app.id] = items
+                }
             }
         }
     }
@@ -135,6 +196,14 @@ final class AppState {
         guard supportItemsAppID != app.id else { return }
 
         supportItemsAppID = app.id
+
+        if let cached = supportCache[app.id] {
+            supportItems = cached
+            selectedSupportIDs = Set(cached.map(\.id))
+            isLoadingSupport = false
+            return
+        }
+
         supportItems = []
         selectedSupportIDs = []
         isLoadingSupport = true
@@ -145,6 +214,7 @@ final class AppState {
                 guard self.supportItemsAppID == app.id else { return }
                 self.supportItems = items
                 self.selectedSupportIDs = Set(items.map(\.id))
+                self.supportCache[app.id] = items
                 self.isLoadingSupport = false
             }
         }
@@ -160,15 +230,21 @@ final class AppState {
 
     // MARK: - Actions
 
-    func relocateSelected() {
+    /// Destination proposed by default for a move: the configured one, if any.
+    var defaultDestination: URL? {
+        destinationPath.isEmpty ? nil : URL(fileURLWithPath: destinationPath)
+    }
+
+    /// Moves the selected app. `destination` overrides the configured default
+    /// for this move only.
+    func relocateSelected(to destination: URL?) {
         guard let row = selectedRow, let app = row.app, !row.isRelocated else { return }
-        guard !destinationPath.isEmpty else {
+        guard let destination = destination ?? defaultDestination else {
             errorMessage = RelocationError.noDestination.localizedDescription
             showSettings = true
             return
         }
 
-        let destination = URL(fileURLWithPath: destinationPath)
         let chosen = supportItems.filter { selectedSupportIDs.contains($0.id) }
 
         do {
@@ -179,14 +255,14 @@ final class AppState {
             perform(plan.operations) { [self] in
                 Relocator.writeManifest(plan.record)
                 ledger.add(plan.record)
-                supportItemsAppID = nil
+                forgetSupportCache(for: app.id)
                 if !createAppSymlink {
                     selectedRowID = plan.record.destinationRoot
                 }
             } onFailure: { [self] in
                 // Keep whatever actually made it across so it stays restorable.
                 reconcile(plan.record)
-                supportItemsAppID = nil
+                forgetSupportCache(for: app.id)
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -200,16 +276,52 @@ final class AppState {
             perform(operations) { [self] in
                 Relocator.pruneEmptyDirectories(at: record.destinationRootURL)
                 ledger.remove(appNamed: record.appName)
-                supportItemsAppID = nil
+                forgetSupportCache(for: record.bundleItem?.originalPath)
                 selectedRowID = record.bundleItem?.originalPath
             } onFailure: { [self] in
                 // Items already back home must drop out of the record.
                 reconcile(record)
-                supportItemsAppID = nil
+                forgetSupportCache(for: record.bundleItem?.originalPath)
             }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Sends the selected app and its ticked support items to the Trash.
+    func deleteSelected() {
+        guard let row = selectedRow else { return }
+        do {
+            let operations: [FileOperation]
+            if let record = row.record {
+                operations = try Relocator.planDeletion(record: record)
+            } else if let app = row.app {
+                let chosen = supportItems.filter { selectedSupportIDs.contains($0.id) }
+                operations = try Relocator.planDeletion(app: app, supportItems: chosen)
+            } else {
+                return
+            }
+
+            let appName = row.record?.appName
+            perform(operations) { [self] in
+                if let appName { ledger.remove(appNamed: appName) }
+                forgetSupportCache(for: row.app?.id)
+                selectedRowID = nil
+            } onFailure: { [self] in
+                // A partial deletion leaves the ledger describing files that are gone.
+                if let record = row.record { reconcile(record) }
+                forgetSupportCache(for: row.app?.id)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func forgetSupportCache(for appID: String?) {
+        supportItemsAppID = nil
+        guard let appID else { return }
+        supportCache[appID] = nil
+        supportSizes[appID] = nil
     }
 
     /// Rewrites the ledger entry to hold only the items still sitting at their

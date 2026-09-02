@@ -7,6 +7,7 @@ enum FileOperation {
     case move(from: URL, to: URL)
     case makeSymlink(link: URL, target: URL)
     case removeSymlink(URL)
+    case trash(URL)
 
     var progressLabel: String {
         switch self {
@@ -18,6 +19,8 @@ enum FileOperation {
             return "Lien symbolique pour \(link.lastPathComponent)"
         case .removeSymlink(let url):
             return "Retrait du lien \(url.lastPathComponent)"
+        case .trash(let url):
+            return "Mise à la corbeille de \(url.lastPathComponent)"
         }
     }
 
@@ -34,6 +37,14 @@ enum FileOperation {
             let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey])
             guard values?.isSymbolicLink == true else { return }
             try fm.removeItem(at: url)
+        case .trash(let url):
+            do {
+                try fm.trashItem(at: url, resultingItemURL: nil)
+            } catch let error as NSError
+                where error.domain == NSCocoaErrorDomain && error.code == NSFeatureUnsupportedError {
+                // exFAT / NTFS volumes have no Trash; say so instead of surfacing "Cocoa error 3328".
+                throw RelocationError.trashUnavailable(url.path)
+            }
         }
     }
 
@@ -48,6 +59,9 @@ enum FileOperation {
         case .removeSymlink(let url):
             let path = Self.quote(url.path)
             return "if [ -L \(path) ]; then /bin/rm \(path); fi"
+        case .trash(let url):
+            // root cannot use the Trash, so an elevated deletion is permanent.
+            return "/bin/rm -rf \(Self.quote(url.path))"
         }
     }
 
