@@ -166,11 +166,11 @@ enum FileOperation {
     /// keeps the convention already used at that location (e.g. `admin` for
     /// /Applications) instead of an arbitrary group nobody else there has.
     private static func matchingGroup(for path: URL) -> String? {
-        let parent = path.deletingLastPathComponent()
-        return (try? parent.resourceValues(forKeys: [.fileGroupOwnerAccountNameKey]))?
-            .fileGroupOwnerAccountName
-            ?? (try? path.resourceValues(forKeys: [.fileGroupOwnerAccountNameKey]))?
-            .fileGroupOwnerAccountName
+        let fm = FileManager.default
+        func group(at url: URL) -> String? {
+            (try? fm.attributesOfItem(atPath: url.path))?[.groupOwnerAccountName] as? String
+        }
+        return group(at: path.deletingLastPathComponent()) ?? group(at: path)
     }
 
     /// If this operation is a move whose source is still in place while its
