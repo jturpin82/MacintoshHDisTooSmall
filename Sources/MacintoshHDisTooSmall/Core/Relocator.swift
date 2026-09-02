@@ -9,6 +9,7 @@ enum RelocationError: LocalizedError {
     case missingSource(String)
     case originalOccupied(String)
     case trashUnavailable(String)
+    case notRelocated(String)
     case privilegedRetryFailed(privileged: String, original: String)
 
     var errorDescription: String? {
@@ -29,6 +30,8 @@ enum RelocationError: LocalizedError {
             return "Un vrai fichier occupe l'emplacement d'origine : \(path). L'app a probablement été réinstallée."
         case .trashUnavailable(let path):
             return "Ce volume n'a pas de corbeille (exFAT, NTFS…), impossible d'y mettre \(path)."
+        case .notRelocated(let name):
+            return "\(name) n'est pas un lien symbolique dans /Applications : rien à considérer comme déplacé."
         case .privilegedRetryFailed(let privileged, let original):
             return """
             \(privileged)
@@ -113,6 +116,39 @@ enum Relocator {
                                 movedAt: Date(),
                                 items: items)
         return (operations, record)
+    }
+
+    // MARK: - Adopting
+
+    /// Folds an app that was relocated by some other means into the ledger,
+    /// without moving a single file: it is already out of /Applications, this
+    /// only starts tracking it so restore/delete/"oublier" work on it too.
+    static func planAdoption(app: InstalledApp, adopting supportItems: [AdoptableItem]) throws -> MoveRecord {
+        guard app.isRelocated else { throw RelocationError.notRelocated(app.name) }
+        let resolvedBundle = app.installedURL.resolvingSymlinksInPath()
+        guard FileManager.default.fileExists(atPath: resolvedBundle.path) else {
+            throw RelocationError.missingSource(app.installedURL.path)
+        }
+
+        var items = [MovedItem(kind: MovedItem.bundleKind,
+                               originalPath: app.installedURL.path,
+                               relocatedPath: resolvedBundle.path,
+                               symlinkCreated: true,
+                               bytes: FileSize.onDisk(of: resolvedBundle))]
+
+        items += supportItems.map {
+            MovedItem(kind: $0.kind.rawValue,
+                     originalPath: $0.originalURL.path,
+                     relocatedPath: $0.resolvedURL.path,
+                     symlinkCreated: true,
+                     bytes: $0.size)
+        }
+
+        return MoveRecord(appName: app.name,
+                          bundleID: app.bundleID,
+                          destinationRoot: resolvedBundle.deletingLastPathComponent().path,
+                          movedAt: Date(),
+                          items: items)
     }
 
     // MARK: - Moving back

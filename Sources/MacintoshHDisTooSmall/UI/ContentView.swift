@@ -38,6 +38,7 @@ struct ContentView: View {
         .onChange(of: state.selectedRowID) { _, _ in
             if let row = state.selectedRow {
                 state.loadSupportItems(for: row)
+                state.loadAdoptableItems(for: row)
             }
         }
         .sheet(isPresented: $state.showSettings) {

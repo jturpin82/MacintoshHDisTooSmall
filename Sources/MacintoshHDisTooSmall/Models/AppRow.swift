@@ -18,7 +18,14 @@ struct AppRow: Identifiable, Hashable {
         return (bundleSize ?? 0) + (supportSize ?? 0)
     }
 
-    var isRelocated: Bool { record != nil }
+    /// True once the app has actually left /Applications — tracked in the
+    /// ledger, or already a symlink elsewhere by some other means.
+    var isRelocated: Bool { record != nil || isOrphaned }
+
+    /// Already a symlink in /Applications, but MacintoshHDisTooSmall has no
+    /// record of it: moved by some other means, or a lost ledger entry.
+    var isOrphaned: Bool { record == nil && (app?.isRelocated ?? false) }
+
     var bundleID: String? { app?.bundleID ?? record?.bundleID }
 
     /// Path used to fetch the Finder icon, if the bundle can still be reached.

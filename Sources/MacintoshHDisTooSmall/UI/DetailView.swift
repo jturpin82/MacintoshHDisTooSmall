@@ -11,6 +11,8 @@ struct DetailView: View {
                     header(row)
                     if let record = row.record {
                         RelocatedSection(state: state, record: record)
+                    } else if row.isOrphaned {
+                        OrphanSection(state: state, row: row)
                     } else {
                         MoveSection(state: state, row: row)
                     }
@@ -181,6 +183,117 @@ private struct SupportItemRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.kind.displayName)
                     Text(PathFormat.short(item.url.path))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                Text(FileSize.format(item.size))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Relocated by other means, not yet tracked
+
+private struct OrphanSection: View {
+    @Bindable var state: AppState
+    let row: AppRow
+
+    private var resolvedBundlePath: String? {
+        row.app.map { $0.installedURL.resolvingSymlinksInPath().path }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            GroupBox {
+                HStack(spacing: 10) {
+                    Image(systemName: "questionmark.circle.fill")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(resolvedBundlePath.map(PathFormat.short) ?? "Emplacement introuvable")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text("Déjà un lien symbolique dans /Applications, mais MacintoshHDisTooSmall ne la suit pas.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(4)
+            } label: {
+                Label("Non suivie", systemImage: "questionmark.circle")
+            }
+
+            GroupBox {
+                if state.isLoadingAdoptable {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Recherche des caches et configurations déjà déplacés…").foregroundStyle(.secondary)
+                    }
+                    .padding(6)
+                } else if state.adoptableItems.isEmpty {
+                    Text("Aucun cache ni fichier de configuration déjà déplacé trouvé pour cette app.")
+                        .foregroundStyle(.secondary)
+                        .padding(6)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(state.adoptableItems) { item in
+                            AdoptableItemRow(item: item,
+                                             isSelected: state.selectedAdoptableIDs.contains(item.id)) {
+                                state.toggleAdoptableItem(item)
+                            }
+                            if item.id != state.adoptableItems.last?.id { Divider() }
+                        }
+                    }
+                }
+            } label: {
+                Label("Fichiers annexes déjà déplacés", systemImage: "tray.full")
+            }
+
+            Text("Aucun fichier n'est déplacé : MacintoshHDisTooSmall se contente d'enregistrer ce qui est déjà là, pour pouvoir ensuite le restaurer ou le supprimer depuis cette app.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button {
+                    state.adoptSelected()
+                } label: {
+                    Label("Considérer comme déplacée", systemImage: "checkmark.circle")
+                        .frame(minWidth: 90)
+                }
+                .controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                .disabled(state.isBusy)
+            }
+        }
+    }
+}
+
+private struct AdoptableItemRow: View {
+    let item: AdoptableItem
+    let isSelected: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                Image(systemName: item.kind.symbolName)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.kind.displayName)
+                    Text(PathFormat.short(item.resolvedURL.path))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

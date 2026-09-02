@@ -70,3 +70,15 @@ struct SupportItem: Identifiable, Hashable {
 
     var id: String { url.path }
 }
+
+/// A ~/Library item that turned out to already be a symlink elsewhere —
+/// evidence the app was relocated by some other means, found while looking
+/// for something to fold into the ledger rather than something to move.
+struct AdoptableItem: Identifiable, Hashable {
+    let kind: SupportItem.Kind
+    let originalURL: URL
+    let resolvedURL: URL
+    let size: Int64
+
+    var id: String { originalURL.path }
+}

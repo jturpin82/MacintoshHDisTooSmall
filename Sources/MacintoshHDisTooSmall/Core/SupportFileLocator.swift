@@ -44,4 +44,32 @@ enum SupportFileLocator {
 
         return found.sorted { $0.size > $1.size }
     }
+
+    /// Finds ~/Library items for `app` that are already symlinks elsewhere —
+    /// candidates to fold into the ledger via "Considérer comme déplacée"
+    /// rather than to move. A dangling symlink (target no longer exists) is
+    /// skipped: there is nothing left to track.
+    static func locateAdoptable(app: InstalledApp) -> [AdoptableItem] {
+        let fm = FileManager.default
+        let library = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library")
+        var found: [AdoptableItem] = []
+        var seen = Set<String>()
+
+        for kind in SupportItem.Kind.allCases {
+            let base = library.appendingPathComponent(kind.librarySubpath)
+            for name in candidateNames(for: kind, app: app) {
+                let url = base.appendingPathComponent(name)
+                guard !seen.contains(url.path) else { continue }
+                let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey])
+                guard values?.isSymbolicLink == true else { continue }
+                let resolved = url.resolvingSymlinksInPath()
+                guard fm.fileExists(atPath: resolved.path) else { continue }
+                seen.insert(url.path)
+                found.append(AdoptableItem(kind: kind, originalURL: url, resolvedURL: resolved,
+                                           size: FileSize.onDisk(of: resolved)))
+            }
+        }
+
+        return found.sorted { $0.size > $1.size }
+    }
 }

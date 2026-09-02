@@ -43,6 +43,9 @@ exactement où c'était.
   dossier de destination.
 - Supprime : envoie à la corbeille le bundle et les fichiers annexes cochés, que l'app soit
   encore dans `/Applications` ou déjà déplacée (les liens laissés derrière sont retirés).
+- Adopte : une app déjà déplacée par d'autres moyens (script, Finder…) apparaît « Non suivie »
+  dans la liste. Le bouton « Considérer comme déplacée » l'ajoute au journal telle quelle — sans
+  déplacer un seul fichier — pour pouvoir ensuite la restaurer ou la supprimer depuis l'app.
 
 ## Réglages
 
@@ -85,6 +88,13 @@ exactement où c'était.
 - **Oublier une entrée.** Si le journal ne décrit plus la réalité (app remise en place à la
   main, déplacement interrompu), le menu « … » du panneau d'une app déplacée permet d'oublier
   son entrée sans toucher au moindre fichier.
+- **Adopter une app orpheline.** L'inverse d'oublier une entrée : une app déjà symlinkée dans
+  `/Applications` mais absente du journal (déplacée par un autre outil, ou après une
+  réinstallation de MacintoshHDisTooSmall) se voit proposer « Considérer comme déplacée », avec
+  la liste des fichiers annexes eux-mêmes déjà symlinkés ailleurs. Un lien mort (cible
+  disparue) n'est jamais proposé. Rien n'est déplacé : seul le journal change. Tant que l'app
+  n'est pas adoptée, la supprimer ne retire que le lien dans `/Applications` — le bundle réel,
+  ailleurs, n'est pas touché.
 - **Suppression et droits root.** La suppression passe par la corbeille, donc reste réversible.
   Exception : si l'opération réclame les droits administrateur, elle est rejouée en `rm -rf` —
   la corbeille n'est pas utilisable en root. Le dialogue de confirmation le rappelle.
@@ -98,7 +108,7 @@ app, puisque plusieurs apps partagent désormais les mêmes dossiers de destinat
 ## Compiler
 
 ```bash
-./build.sh 0.2.3
+./build.sh 0.2.4
 ```
 
 Produit `dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.

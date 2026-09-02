@@ -48,7 +48,11 @@ private struct SidebarRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.name).lineLimit(1)
-                if row.isRelocated {
+                if row.isOrphaned {
+                    Label("Non suivie", systemImage: "questionmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                } else if row.isRelocated {
                     Label("Déplacée", systemImage: "arrow.uturn.right.circle.fill")
                         .font(.caption2)
                         .foregroundStyle(.teal)

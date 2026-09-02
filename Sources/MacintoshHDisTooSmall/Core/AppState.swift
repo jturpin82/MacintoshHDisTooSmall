@@ -59,6 +59,12 @@ final class AppState {
     private(set) var isLoadingSupport = false
     private var supportItemsAppID: String?
 
+    // ~/Library items already symlinked elsewhere, for an orphaned selection
+    private(set) var adoptableItems: [AdoptableItem] = []
+    var selectedAdoptableIDs: Set<String> = []
+    private(set) var isLoadingAdoptable = false
+    private var adoptableItemsAppID: String?
+
     // Running operation
     private(set) var isBusy = false
     private(set) var operationLabel = ""
@@ -157,7 +163,12 @@ final class AppState {
             return (row.name, record.items.count, record.totalBytes)
         }
         let chosen = supportItems.filter { selectedSupportIDs.contains($0.id) }
-        return (row.name, chosen.count + 1, (row.bundleSize ?? 0) + selectedSupportBytes)
+        // row.bundleSize follows the symlink for an orphan (so the header
+        // shows what the app really weighs), but deleting one — without
+        // adopting it first — only trashes that symlink: a few bytes, not
+        // the bundle it points to, which stays untouched elsewhere.
+        let bundleBytes = row.isOrphaned ? 0 : (row.bundleSize ?? 0)
+        return (row.name, chosen.count + 1, bundleBytes + selectedSupportBytes)
     }
 
     // MARK: - Scanning
@@ -176,14 +187,31 @@ final class AppState {
         sizingTask = Task.detached(priority: .utility) { [self] in
             for app in scanned {
                 if Task.isCancelled { return }
-                let bundleSize = FileSize.onDisk(of: app.installedURL)
-                let items = SupportFileLocator.locate(app: app)
-                let supportSize = items.reduce(0) { $0 + $1.size }
+                // FileSize.onDisk deliberately reports 0 for a symlink — right
+                // for a tracked app (its real size lives in the ledger record
+                // instead), but an orphan has no record yet, so its header
+                // would read "0 octet" unless the size follows the link here.
+                let bundleSize = app.isRelocated
+                    ? FileSize.onDisk(of: app.installedURL.resolvingSymlinksInPath())
+                    : FileSize.onDisk(of: app.installedURL)
+                // Likewise, `locate` only ever finds items still on this disk —
+                // useless for an orphan, whose support files are themselves
+                // already symlinks elsewhere; look among those instead.
+                let supportSize: Int64
+                let itemsToCache: [SupportItem]?
+                if app.isRelocated {
+                    supportSize = SupportFileLocator.locateAdoptable(app: app).reduce(0) { $0 + $1.size }
+                    itemsToCache = nil
+                } else {
+                    let items = SupportFileLocator.locate(app: app)
+                    supportSize = items.reduce(0) { $0 + $1.size }
+                    itemsToCache = items
+                }
                 if Task.isCancelled { return }
                 await MainActor.run {
                     self.bundleSizes[app.id] = bundleSize
                     self.supportSizes[app.id] = supportSize
-                    self.supportCache[app.id] = items
+                    if let itemsToCache { self.supportCache[app.id] = itemsToCache }
                 }
             }
         }
@@ -228,6 +256,39 @@ final class AppState {
             selectedSupportIDs.remove(item.id)
         } else {
             selectedSupportIDs.insert(item.id)
+        }
+    }
+
+    func loadAdoptableItems(for row: AppRow) {
+        guard let app = row.app, row.isOrphaned else {
+            adoptableItems = []
+            selectedAdoptableIDs = []
+            adoptableItemsAppID = nil
+            return
+        }
+        guard adoptableItemsAppID != app.id else { return }
+
+        adoptableItemsAppID = app.id
+        adoptableItems = []
+        selectedAdoptableIDs = []
+        isLoadingAdoptable = true
+
+        Task.detached(priority: .userInitiated) { [self] in
+            let items = SupportFileLocator.locateAdoptable(app: app)
+            await MainActor.run {
+                guard self.adoptableItemsAppID == app.id else { return }
+                self.adoptableItems = items
+                self.selectedAdoptableIDs = Set(items.map(\.id))
+                self.isLoadingAdoptable = false
+            }
+        }
+    }
+
+    func toggleAdoptableItem(_ item: AdoptableItem) {
+        if selectedAdoptableIDs.contains(item.id) {
+            selectedAdoptableIDs.remove(item.id)
+        } else {
+            selectedAdoptableIDs.insert(item.id)
         }
     }
 
@@ -315,6 +376,28 @@ final class AppState {
                 if let record = row.record { reconcile(record) }
                 forgetSupportCache(for: row.app?.id)
             }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Folds an already-relocated-elsewhere app into the ledger, as-is: no
+    /// file is touched, only its record is created. The counterpart to
+    /// "Oublier cette entrée" for the opposite problem — an app moved by some
+    /// other means, or a lost ledger entry.
+    func adoptSelected() {
+        guard let row = selectedRow, let app = row.app, row.isOrphaned else { return }
+        let chosen = adoptableItems.filter { selectedAdoptableIDs.contains($0.id) }
+        do {
+            let record = try Relocator.planAdoption(app: app, adopting: chosen)
+            Relocator.writeManifest(record)
+            ledger.add(record)
+            adoptableItemsAppID = nil
+            forgetSupportCache(for: app.id)
+            // Unlike a move, adoption never touches /Applications: the app is
+            // still found there by the scan, so the row keeps app.id as its
+            // id (see `rows`) — selectedRowID needs no change.
+            refresh()
         } catch {
             errorMessage = error.localizedDescription
         }
