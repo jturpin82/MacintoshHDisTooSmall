@@ -9,6 +9,7 @@ enum RelocationError: LocalizedError {
     case missingSource(String)
     case originalOccupied(String)
     case trashUnavailable(String)
+    case privilegedRetryFailed(privileged: String, original: String)
 
     var errorDescription: String? {
         switch self {
@@ -28,6 +29,12 @@ enum RelocationError: LocalizedError {
             return "Un vrai fichier occupe l'emplacement d'origine : \(path). L'app a probablement été réinstallée."
         case .trashUnavailable(let path):
             return "Ce volume n'a pas de corbeille (exFAT, NTFS…), impossible d'y mettre \(path)."
+        case .privilegedRetryFailed(let privileged, let original):
+            return """
+            \(privileged)
+
+            Échec initial, sans privilèges : \(original)
+            """
         }
     }
 }

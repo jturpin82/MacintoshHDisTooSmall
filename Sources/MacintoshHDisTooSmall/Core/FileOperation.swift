@@ -86,6 +86,21 @@ enum FileOperation {
         return false
     }
 
+    /// If this operation is a move whose source is still in place while its
+    /// destination exists, that destination can only be debris from the attempt
+    /// that just failed: a cross-volume moveItem copies before it deletes, and
+    /// leaves a partial copy behind when it gives up. Re-running `mv` against it
+    /// would nest the bundle inside itself, so it has to go first.
+    /// Returns a shell command when the cleanup needs privileges too.
+    private func partialDestinationCleanup() -> String? {
+        guard case let .move(from, to) = self else { return nil }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: from.path), fm.fileExists(atPath: to.path) else { return nil }
+        try? fm.removeItem(at: to)
+        guard fm.fileExists(atPath: to.path) else { return nil }
+        return "/bin/rm -rf \(Self.quote(to.path))"
+    }
+
     /// Runs every operation in order. On the first permission failure the whole
     /// remainder is re-run as a single privileged script, so the user is asked
     /// for a password at most once per operation batch.
@@ -100,9 +115,21 @@ enum FileOperation {
             } catch {
                 guard isPermissionError(error) else { throw error }
                 progress("Authentification requise…", Double(index) / total)
-                let script = (["set -e"] + operations[index...].map(\.shellCommand))
-                    .joined(separator: "\n") + "\n"
-                try PrivilegedRunner.run(shellScript: script)
+
+                var lines = ["set -e"]
+                if let cleanup = operation.partialDestinationCleanup() {
+                    lines.append(cleanup)
+                }
+                lines.append(contentsOf: operations[index...].map(\.shellCommand))
+
+                do {
+                    try PrivilegedRunner.run(shellScript: lines.joined(separator: "\n") + "\n")
+                } catch let privilegedError {
+                    // Without the first error the real cause stays invisible.
+                    throw RelocationError.privilegedRetryFailed(
+                        privileged: privilegedError.localizedDescription,
+                        original: error.localizedDescription)
+                }
                 progress("Terminé", 1)
                 return
             }

@@ -324,12 +324,24 @@ final class AppState {
         supportSizes[appID] = nil
     }
 
-    /// Rewrites the ledger entry to hold only the items still sitting at their
-    /// relocated path, so a half-finished move stays reversible.
+    /// Rewrites the ledger entry to hold only the items that genuinely moved, so
+    /// a half-finished operation stays reversible.
+    ///
+    /// A file sitting at the relocated path is not proof on its own: a failed
+    /// cross-volume move leaves a partial copy there while the original is still
+    /// in place. An item only counts as moved once its original slot is empty or
+    /// holds the symlink we put there.
     private func reconcile(_ record: MoveRecord) {
         let fm = FileManager.default
         var pruned = record
-        pruned.items = record.items.filter { fm.fileExists(atPath: $0.relocatedPath) }
+        pruned.items = record.items.filter { item in
+            guard fm.fileExists(atPath: item.relocatedPath) else { return false }
+            let original = item.originalURL
+            if (try? original.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true {
+                return true
+            }
+            return !fm.fileExists(atPath: original.path)
+        }
         if pruned.items.isEmpty {
             ledger.remove(appNamed: record.appName)
         } else {
