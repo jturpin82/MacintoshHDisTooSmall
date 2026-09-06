@@ -26,8 +26,9 @@ enum SupportFileLocator {
     ///
     /// Existence is then tested exactly, so a fragment that matches nothing
     /// costs one `stat` and disappears.
-    private static func homeStems(name: String, bundleID: String?) -> [String] {
-        var raw = [name, name.replacingOccurrences(of: " ", with: "")]
+    private static func homeStems(name: String, bundleID: String?, extraNames: [String]) -> [String] {
+        var raw = [name] + extraNames
+        raw += raw.map { $0.replacingOccurrences(of: " ", with: "") }
         raw += bundleID?.split(separator: ".").map(String.init) ?? []
 
         var seen = Set<String>()
@@ -46,9 +47,12 @@ enum SupportFileLocator {
     /// Candidate directory names for a given kind, most specific first.
     private static func candidateNames(for kind: SupportItem.Kind,
                                        name: String,
-                                       bundleID: String?) -> [String] {
+                                       bundleID: String?,
+                                       extraNames: [String]) -> [String] {
         if kind.isOutsideLibrary {
-            let stems = homeStems(name: name, bundleID: bundleID)
+            // A manually added item is never probed for: it has no name to guess.
+            guard kind != .custom else { return [] }
+            let stems = homeStems(name: name, bundleID: bundleID, extraNames: extraNames)
             guard kind == .homeHidden else { return stems }
             return stems.map { "." + $0 }.filter { !protectedHomeNames.contains($0.lowercased()) }
         }
@@ -56,6 +60,7 @@ enum SupportFileLocator {
         var stems: [String] = []
         if let bundleID, !bundleID.isEmpty { stems.append(bundleID) }
         stems.append(name)
+        stems += extraNames
 
         switch kind {
         case .savedState:
@@ -75,12 +80,12 @@ enum SupportFileLocator {
     /// Matching is on exact directory names only — never fuzzy — and the user
     /// confirms the list before anything is moved.
     static func locate(app: InstalledApp) -> [SupportItem] {
-        locate(name: app.name, bundleID: app.bundleID)
+        locate(name: app.name, bundleID: app.bundleID, extraNames: app.alternateNames)
     }
 
     /// Same, for an app known only through its ledger entry — its bundle may
     /// have left /Applications without leaving a symlink behind.
-    static func locate(name: String, bundleID: String?) -> [SupportItem] {
+    static func locate(name: String, bundleID: String?, extraNames: [String] = []) -> [SupportItem] {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
         var found: [SupportItem] = []
@@ -88,7 +93,7 @@ enum SupportFileLocator {
 
         for kind in SupportItem.Kind.allCases {
             let base = kind.baseURL(inHome: home)
-            for candidate in candidateNames(for: kind, name: name, bundleID: bundleID)
+            for candidate in candidateNames(for: kind, name: name, bundleID: bundleID, extraNames: extraNames)
                 where !candidate.isEmpty && candidate != "." {
                 let url = base.appendingPathComponent(candidate)
                 guard !seen.contains(url.path), fm.fileExists(atPath: url.path) else { continue }
@@ -103,6 +108,35 @@ enum SupportFileLocator {
         return found.sorted { $0.size > $1.size }
     }
 
+    /// Why a hand-picked item cannot be moved with an app, or nil when it can.
+    /// The manual picker bypasses every rule the automatic search applies, so
+    /// the ones that matter have to be re-stated here.
+    static func rejectionReason(forManuallyAdded url: URL) -> String? {
+        let fm = FileManager.default
+        let item = url.standardizedFileURL
+        let home = fm.homeDirectoryForCurrentUser.standardizedFileURL
+
+        guard fm.fileExists(atPath: item.path) else { return "Introuvable : \(item.path)" }
+        if (try? item.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true {
+            return "C'est déjà un lien symbolique : cet élément a déjà été déplacé."
+        }
+        guard item != home else {
+            return "Le dossier personnel lui-même ne peut pas être déplacé."
+        }
+        guard item.path.hasPrefix(home.path + "/") else {
+            return "Choisis un élément situé dans ton dossier personnel."
+        }
+        if item.deletingLastPathComponent().standardizedFileURL == home,
+           protectedHomeNames.contains(item.lastPathComponent.lowercased()) {
+            return "\(item.lastPathComponent) est partagé par tout le système ou contient des secrets : il n'est jamais déplacé."
+        }
+        let preferences = home.appendingPathComponent("Library/Preferences").standardizedFileURL
+        if item == preferences || item.path.hasPrefix(preferences.path + "/") {
+            return "Les préférences ne sont jamais déplacées : macOS les réécrit et détruirait le lien symbolique."
+        }
+        return nil
+    }
+
     /// Finds items for `app` that are already symlinks elsewhere — candidates
     /// to fold into the ledger via "Considérer comme déplacée" rather than to
     /// move. A dangling symlink (target no longer exists) is skipped: there is
@@ -115,7 +149,8 @@ enum SupportFileLocator {
 
         for kind in SupportItem.Kind.allCases {
             let base = kind.baseURL(inHome: home)
-            for candidate in candidateNames(for: kind, name: app.name, bundleID: app.bundleID)
+            for candidate in candidateNames(for: kind, name: app.name, bundleID: app.bundleID,
+                                            extraNames: app.alternateNames)
                 where !candidate.isEmpty && candidate != "." {
                 let url = base.appendingPathComponent(candidate)
                 guard !seen.contains(url.path) else { continue }

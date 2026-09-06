@@ -7,6 +7,12 @@ struct InstalledApp: Identifiable, Hashable {
     let name: String
     let bundleID: String?
     let version: String?
+    /// Names the bundle calls itself from the inside — CFBundleName,
+    /// CFBundleDisplayName, CFBundleExecutable — when they differ from the
+    /// file name. An app is not always shipped under the name it is sold
+    /// under: LM Studio installs as `Bionic.app`, and only these fields carry
+    /// the name its data folder is likely to be built from.
+    let alternateNames: [String]
     /// True when /Applications/<name>.app is a symlink, i.e. the bundle already lives elsewhere.
     let isRelocated: Bool
 
@@ -27,5 +33,14 @@ struct InstalledApp: Identifiable, Hashable {
         self.bundleID = info?["CFBundleIdentifier"] as? String
         self.version = (info?["CFBundleShortVersionString"] as? String)
             ?? (info?["CFBundleVersion"] as? String)
+
+        let fileName = self.name
+        var alternates: [String] = []
+        for key in ["CFBundleName", "CFBundleDisplayName", "CFBundleExecutable"] {
+            guard let value = info?[key] as? String,
+                  !value.isEmpty, value != fileName, !alternates.contains(value) else { continue }
+            alternates.append(value)
+        }
+        self.alternateNames = alternates
     }
 }

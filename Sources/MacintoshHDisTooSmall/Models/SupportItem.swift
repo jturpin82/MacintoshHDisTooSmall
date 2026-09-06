@@ -14,6 +14,7 @@ struct SupportItem: Identifiable, Hashable {
         case xdgConfig
         case xdgCache
         case xdgData
+        case custom
 
         /// Path of the containing directory, relative to the home folder.
         /// Empty for `homeHidden`, whose items sit at the root of ~ itself.
@@ -30,6 +31,8 @@ struct SupportItem: Identifiable, Hashable {
             case .xdgConfig: return ".config"
             case .xdgCache: return ".cache"
             case .xdgData: return ".local/share"
+            // Never probed for — a manually added item carries its own full path.
+            case .custom: return ""
             }
         }
 
@@ -41,7 +44,7 @@ struct SupportItem: Identifiable, Hashable {
         /// folder is named after the app rather than placed by macOS.
         var isOutsideLibrary: Bool {
             switch self {
-            case .homeHidden, .xdgConfig, .xdgCache, .xdgData: return true
+            case .homeHidden, .xdgConfig, .xdgCache, .xdgData, .custom: return true
             default: return false
             }
         }
@@ -59,6 +62,7 @@ struct SupportItem: Identifiable, Hashable {
             case .xdgConfig: return "Configuration (.config)"
             case .xdgCache: return "Cache (.cache)"
             case .xdgData: return "Données (.local/share)"
+            case .custom: return "Dossier ajouté"
             }
         }
 
@@ -78,6 +82,7 @@ struct SupportItem: Identifiable, Hashable {
             case .xdgConfig: return "Config"
             case .xdgCache: return "CacheXDG"
             case .xdgData: return "LocalShare"
+            case .custom: return "Autres"
             }
         }
 
@@ -94,6 +99,7 @@ struct SupportItem: Identifiable, Hashable {
             case .xdgConfig: return "slider.horizontal.3"
             case .xdgCache: return "clock.arrow.circlepath"
             case .xdgData: return "archivebox"
+            case .custom: return "folder.badge.plus"
             }
         }
     }
@@ -103,6 +109,21 @@ struct SupportItem: Identifiable, Hashable {
     var size: Int64
 
     var id: String { url.path }
+}
+
+extension SupportItem {
+    /// Builds an item for a folder the user picked by hand, filing it under
+    /// the kind whose base directory contains it so it lands in the same
+    /// destination folder as anything found automatically there.
+    init(manuallyAdded url: URL) {
+        let standardized = url.standardizedFileURL
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let parent = standardized.deletingLastPathComponent().standardizedFileURL
+        let matched = Kind.allCases.first {
+            $0 != .custom && $0.baseURL(inHome: home).standardizedFileURL == parent
+        }
+        self.init(kind: matched ?? .custom, url: standardized, size: FileSize.onDisk(of: standardized))
+    }
 }
 
 /// A ~/Library item that turned out to already be a symlink elsewhere —

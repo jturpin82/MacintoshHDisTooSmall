@@ -405,6 +405,32 @@ final class AppState {
         }
     }
 
+    /// Adds a folder the automatic search could not name — an app's data
+    /// directory whose name matches neither the app nor its identifier — to
+    /// the list about to be moved. `remaining` targets an app that has
+    /// already been moved once.
+    func addSupportItem(at url: URL, remaining: Bool) {
+        if let reason = SupportFileLocator.rejectionReason(forManuallyAdded: url) {
+            errorMessage = reason
+            return
+        }
+        let item = SupportItem(manuallyAdded: url)
+        let alreadyListed = (remaining ? remainingItems : supportItems).contains { $0.id == item.id }
+        let alreadyMoved = selectedRow?.record?.items.contains { $0.originalPath == item.url.path } ?? false
+        guard !alreadyListed, !alreadyMoved else {
+            errorMessage = "\(PathFormat.short(item.url.path)) est déjà dans la liste."
+            return
+        }
+
+        if remaining {
+            remainingItems.append(item)
+            selectedRemainingIDs.insert(item.id)
+        } else {
+            supportItems.append(item)
+            selectedSupportIDs.insert(item.id)
+        }
+    }
+
     func toggleRemainingItem(_ item: SupportItem) {
         if selectedRemainingIDs.contains(item.id) {
             selectedRemainingIDs.remove(item.id)

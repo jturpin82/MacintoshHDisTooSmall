@@ -62,6 +62,9 @@ struct DetailView: View {
 
 // MARK: - Not yet moved
 
+/// @MainActor because `supportBox` reads AppState outside `body`, which is the
+/// only member to inherit the isolation from View conformance.
+@MainActor
 private struct MoveSection: View {
     @Bindable var state: AppState
     let row: AppRow
@@ -90,31 +93,7 @@ private struct MoveSection: View {
                 Label("Destination par défaut", systemImage: "arrow.right.circle")
             }
 
-            GroupBox {
-                if state.isLoadingSupport {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Recherche des caches et configurations…").foregroundStyle(.secondary)
-                    }
-                    .padding(6)
-                } else if state.supportItems.isEmpty {
-                    Text("Aucun cache ni fichier de configuration trouvé pour cette app.")
-                        .foregroundStyle(.secondary)
-                        .padding(6)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(state.supportItems) { item in
-                            SupportItemRow(item: item,
-                                           isSelected: state.selectedSupportIDs.contains(item.id)) {
-                                state.toggleSupportItem(item)
-                            }
-                            if item.id != state.supportItems.last?.id { Divider() }
-                        }
-                    }
-                }
-            } label: {
-                Label("Fichiers annexes", systemImage: "tray.full")
-            }
+            supportBox
 
             Text("Les préférences (~/Library/Preferences) ne sont volontairement jamais déplacées : macOS les réécrit et détruirait le lien symbolique.")
                 .font(.caption)
@@ -164,6 +143,59 @@ private struct MoveSection: View {
                 .disabled(state.isBusy)
             }
         }
+    }
+
+    @ViewBuilder
+    private var supportBox: some View {
+        GroupBox {
+            VStack(spacing: 0) {
+                if state.isLoadingSupport {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Recherche des caches et configurations…").foregroundStyle(.secondary)
+                    }
+                    .padding(6)
+                } else if state.supportItems.isEmpty {
+                    Text("Aucun cache ni fichier de configuration trouvé pour cette app.")
+                        .foregroundStyle(.secondary)
+                        .padding(6)
+                } else {
+                    ForEach(state.supportItems) { item in
+                        SupportItemRow(item: item,
+                                       isSelected: state.selectedSupportIDs.contains(item.id)) {
+                            state.toggleSupportItem(item)
+                        }
+                        Divider()
+                    }
+                }
+                AddSupportItemRow { url in state.addSupportItem(at: url, remaining: false) }
+            }
+        } label: {
+            Label("Fichiers annexes", systemImage: "tray.full")
+        }
+    }
+}
+
+/// Escape hatch for a data folder named after neither the app nor its bundle
+/// identifier: nothing can guess `~/.lmstudio` from `ai.elementlabs.bionic`.
+private struct AddSupportItemRow: View {
+    let add: (URL) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                if let url = DestinationPicker.chooseSupportItem() { add(url) }
+            } label: {
+                Label("Ajouter un dossier…", systemImage: "plus")
+            }
+            .controlSize(.small)
+            Text("dossiers cachés compris")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
     }
 }
 
@@ -438,26 +470,27 @@ private struct RelocatedSection: View {
     @ViewBuilder
     private var remainingBox: some View {
         GroupBox {
-            if state.isLoadingRemaining {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Recherche de ce qui est resté sur le disque…").foregroundStyle(.secondary)
-                }
-                .padding(6)
-            } else if state.remainingItems.isEmpty {
-                Text("Rien d'autre à déplacer : tout ce qui a été trouvé pour cette app est déjà ailleurs.")
-                    .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                if state.isLoadingRemaining {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Recherche de ce qui est resté sur le disque…").foregroundStyle(.secondary)
+                    }
                     .padding(6)
-            } else {
-                VStack(spacing: 0) {
+                } else if state.remainingItems.isEmpty {
+                    Text("Rien d'autre à déplacer : tout ce qui a été trouvé pour cette app est déjà ailleurs.")
+                        .foregroundStyle(.secondary)
+                        .padding(6)
+                } else {
                     ForEach(state.remainingItems) { item in
                         SupportItemRow(item: item,
                                        isSelected: state.selectedRemainingIDs.contains(item.id)) {
                             state.toggleRemainingItem(item)
                         }
-                        if item.id != state.remainingItems.last?.id { Divider() }
+                        Divider()
                     }
                 }
+                AddSupportItemRow { url in state.addSupportItem(at: url, remaining: true) }
             }
         } label: {
             Label("Fichiers annexes restants", systemImage: "tray.and.arrow.down")
