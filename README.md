@@ -131,7 +131,7 @@ app, puisque plusieurs apps partagent désormais les mêmes dossiers de destinat
 ## Compiler
 
 ```bash
-./build.sh 0.2.6
+./build.sh 0.4.0
 ```
 
 Produit `dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.
