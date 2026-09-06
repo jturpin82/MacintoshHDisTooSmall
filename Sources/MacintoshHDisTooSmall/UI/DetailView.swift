@@ -386,48 +386,14 @@ private struct RelocatedSection: View {
                 Label("Éléments déplacés", systemImage: "list.bullet")
             }
 
-            GroupBox {
-                if state.isLoadingRemaining {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Recherche de ce qui est resté sur le disque…").foregroundStyle(.secondary)
-                    }
-                    .padding(6)
-                } else if state.remainingItems.isEmpty {
-                    Text("Rien d'autre à déplacer : tout ce qui a été trouvé pour cette app est déjà ailleurs.")
-                        .foregroundStyle(.secondary)
-                        .padding(6)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(state.remainingItems) { item in
-                            SupportItemRow(item: item,
-                                           isSelected: state.selectedRemainingIDs.contains(item.id)) {
-                                state.toggleRemainingItem(item)
-                            }
-                            if item.id != state.remainingItems.last?.id { Divider() }
-                        }
-                    }
-                }
-            } label: {
-                Label("Fichiers annexes restants", systemImage: "tray.and.arrow.down")
-            }
-
-            if !state.remainingItems.isEmpty {
-                Text("Ces éléments sont encore sur le disque de démarrage : pas cochés lors du déplacement, ou créés par l'app depuis. Les déplacer les ajoute à la fiche existante.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            remainingBox
 
             HStack(spacing: 10) {
-                if state.remainingItems.isEmpty {
-                    Text("Restaurer remet chaque élément à son emplacement d'origine.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("À libérer en plus : \(FileSize.format(state.selectedRemainingBytes))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(state.remainingItems.isEmpty
+                     ? "Restaurer remet chaque élément à son emplacement d'origine."
+                     : "À libérer en plus : \(FileSize.format(state.selectedRemainingBytes))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer()
 
                 Menu {
@@ -439,26 +405,7 @@ private struct RelocatedSection: View {
                 .fixedSize()
                 .disabled(state.isBusy)
 
-                if !state.remainingItems.isEmpty {
-                    // Same split button as a first move: the destination the app
-                    // already went to on click, another one through the menu.
-                    Menu {
-                        Button("Choisir un autre dossier…") {
-                            if let url = DestinationPicker.choose(startingAt: record.destinationRoot) {
-                                state.relocateRemaining(to: url)
-                            }
-                        }
-                    } label: {
-                        Label("Déplacer aussi", systemImage: "arrow.right.doc.on.clipboard")
-                    } primaryAction: {
-                        state.relocateRemaining(to: nil)
-                    }
-                    .menuStyle(.button)
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .fixedSize()
-                    .disabled(state.isBusy || state.selectedRemainingIDs.isEmpty)
-                }
+                if !state.remainingItems.isEmpty { moveRemainingButton }
 
                 Button(role: .destructive) {
                     state.showDeleteConfirmation = true
@@ -481,6 +428,64 @@ private struct RelocatedSection: View {
                 .disabled(state.isBusy)
             }
         }
+    }
+
+    /// What this app still has on the startup disk: nothing that is already a
+    /// symlink, so the list is exactly what a further move could take away.
+    @ViewBuilder
+    private var remainingBox: some View {
+        GroupBox {
+            if state.isLoadingRemaining {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Recherche de ce qui est resté sur le disque…").foregroundStyle(.secondary)
+                }
+                .padding(6)
+            } else if state.remainingItems.isEmpty {
+                Text("Rien d'autre à déplacer : tout ce qui a été trouvé pour cette app est déjà ailleurs.")
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(state.remainingItems) { item in
+                        SupportItemRow(item: item,
+                                       isSelected: state.selectedRemainingIDs.contains(item.id)) {
+                            state.toggleRemainingItem(item)
+                        }
+                        if item.id != state.remainingItems.last?.id { Divider() }
+                    }
+                }
+            }
+        } label: {
+            Label("Fichiers annexes restants", systemImage: "tray.and.arrow.down")
+        }
+
+        if !state.remainingItems.isEmpty {
+            Text("Ces éléments sont encore sur le disque de démarrage : pas cochés lors du déplacement, ou créés par l'app depuis. Les déplacer les ajoute à la fiche existante.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Same split button as a first move: the destination the app already went
+    /// to on click, another one through the menu.
+    private var moveRemainingButton: some View {
+        Menu {
+            Button("Choisir un autre dossier…") {
+                if let url = DestinationPicker.choose(startingAt: record.destinationRoot) {
+                    state.relocateRemaining(to: url)
+                }
+            }
+        } label: {
+            Label("Déplacer aussi", systemImage: "arrow.right.doc.on.clipboard")
+        } primaryAction: {
+            state.relocateRemaining(to: nil)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .fixedSize()
+        .disabled(state.isBusy || state.selectedRemainingIDs.isEmpty)
     }
 }
 
