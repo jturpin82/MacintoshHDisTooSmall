@@ -28,6 +28,7 @@ exactement où c'était.
   | `~/.config/<nom>`                      | `Config/`               | oui |
   | `~/.cache/<nom>`                       | `CacheXDG/`             | oui |
   | `~/.local/share/<nom>`                 | `LocalShare/`           | oui |
+  | dossier ajouté à la main               | `Autres/`               | oui |
   | `~/Library/Preferences/<bundle-id>.plist` | —                    | **non — voir plus bas** |
 
   Exemple, pour la destination `/Volumes/2To/Apps` :
@@ -86,19 +87,29 @@ exactement où c'était.
   t'appartient — pas de dossier ou de lien fantôme appartenant à `root` à traiter à nouveau la
   prochaine fois. Si cette correction ne suffit pas, tout le reste du lot est rejoué en une
   seule fois via `osascript … with administrator privileges`, comme avant.
-- **Détection des fichiers annexes.** Le rapprochement se fait sur le nom exact du dossier
-  (identifiant de bundle, puis nom de l'app) — jamais de correspondance approximative. La
-  liste est présentée avec cases à cocher : rien n'est déplacé sans validation.
+- **Détection des fichiers annexes.** Le rapprochement se fait sur le nom exact du dossier —
+  jamais de correspondance approximative. Les racines essayées sont l'identifiant de bundle, le
+  nom du fichier `.app`, et les noms que le bundle se donne de l'intérieur (`CFBundleName`,
+  `CFBundleDisplayName`, `CFBundleExecutable`) : une app n'est pas toujours livrée sous le nom
+  sous lequel elle se vend. La liste est présentée avec cases à cocher : rien n'est déplacé
+  sans validation.
 - **Dossiers dans le répertoire utilisateur.** Beaucoup d'apps stockent leurs gros volumes de
-  données hors de `~/Library` : LM Studio est distribué sous le nom `Bionic.app` mais garde ses
-  modèles dans `~/.lmstudio`. Ni le nom de l'app ni son identifiant complet ne le disent — seul
-  un composant de l'identifiant (`ai.…lmstudio.…`) fait le lien. L'app teste donc l'existence
-  exacte de `~/.<composant>`, `~/.config/<composant>`, `~/.cache/<composant>` et
-  `~/.local/share/<composant>` pour le nom de l'app et pour chaque composant de son identifiant,
-  en écartant les composants trop génériques (`com`, `app`, `desktop`, `client`…). Les
-  emplacements partagés par tout le système ou porteurs de secrets — `~/.ssh`, `~/.gnupg`,
-  `~/.aws`, `~/.config`, `~/.cache`, `~/.local`, `~/.Trash` — ne sont jamais proposés, même si
-  une app porte ce nom. Comme le reste, tout passe par les cases à cocher.
+  données hors de `~/Library`. L'app teste l'existence exacte de `~/.<racine>`,
+  `~/.config/<racine>`, `~/.cache/<racine>` et `~/.local/share/<racine>` pour chacune des
+  racines ci-dessus et pour chaque composant de l'identifiant, en écartant les composants trop
+  génériques (`com`, `app`, `desktop`, `client`…). Les emplacements partagés par tout le système
+  ou porteurs de secrets — `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config`, `~/.cache`, `~/.local`,
+  `~/.Trash` — ne sont jamais proposés, même si une app porte ce nom.
+- **Quand aucun nom ne suffit : « Ajouter un dossier… ».** Certains dossiers de données ne
+  portent le nom de rien de devinable. LM Studio est distribué sous le nom `Bionic.app`, avec
+  l'identifiant `ai.elementlabs.bionic`, et garde ses modèles dans `~/.lmstudio` : aucune
+  recherche automatique honnête ne peut faire ce lien. Le bouton « Ajouter un dossier… », dans
+  les deux panneaux, ouvre un sélecteur qui **affiche les éléments cachés** et ajoute le dossier
+  choisi à la liste avec sa taille. Il est classé d'après le dossier qui le contient — `~/.lmstudio`
+  ira donc dans `Home/` comme s'il avait été trouvé seul — ou dans `Autres/` à défaut. Les mêmes
+  garde-fous s'appliquent : rien hors du dossier personnel, jamais le dossier personnel lui-même,
+  jamais un lien déjà déplacé, jamais les emplacements protégés ci-dessus, jamais
+  `~/Library/Preferences`.
 - **Accès disque complet.** Quelques sous-dossiers de `~/Library` sont protégés par TCC. Si un
   déplacement échoue là-dessus, accorder « Accès complet au disque » à l'app dans
   Réglages Système → Confidentialité et sécurité.
@@ -131,7 +142,7 @@ app, puisque plusieurs apps partagent désormais les mêmes dossiers de destinat
 ## Compiler
 
 ```bash
-./build.sh 0.4.0
+./build.sh 0.4.1
 ```
 
 Produit `dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.
