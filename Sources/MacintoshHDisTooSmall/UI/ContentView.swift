@@ -44,6 +44,7 @@ struct ContentView: View {
             if let row = state.selectedRow {
                 state.loadSupportItems(for: row)
                 state.loadAdoptableItems(for: row)
+                state.loadRemainingItems(for: row)
             }
         }
         .sheet(isPresented: $state.showSettings) {

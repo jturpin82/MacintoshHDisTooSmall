@@ -24,6 +24,10 @@ exactement où c'était.
   | `~/Library/Saved Application State/…`  | `SavedApplicationState/`| oui |
   | `~/Library/HTTPStorages/<bundle-id>`   | `HTTPStorages/`         | oui |
   | `~/Library/WebKit/<bundle-id>`         | `WebKit/`               | oui |
+  | `~/.<nom>` (ex. `~/.lmstudio`)         | `Home/`                 | oui |
+  | `~/.config/<nom>`                      | `Config/`               | oui |
+  | `~/.cache/<nom>`                       | `CacheXDG/`             | oui |
+  | `~/.local/share/<nom>`                 | `LocalShare/`           | oui |
   | `~/Library/Preferences/<bundle-id>.plist` | —                    | **non — voir plus bas** |
 
   Exemple, pour la destination `/Volumes/2To/Apps` :
@@ -33,12 +37,18 @@ exactement où c'était.
   ├── Applications/Toto.app
   ├── ApplicationSupport/Toto
   ├── Caches/Toto
+  ├── Home/.toto
   └── Logs/Toto
   ```
 
   Les apps déplacées avant la 0.2.2 gardent leur ancienne disposition (un dossier par app) ;
   seuls les nouveaux déplacements utilisent cette structure partagée.
 
+- Complète un déplacement : le panneau d'une app déjà déplacée liste, sous « Fichiers annexes
+  restants », ce qui est encore sur le disque de démarrage — jamais coché la première fois, ou
+  créé par l'app depuis. « Déplacer aussi » les envoie vers la destination déjà utilisée (le
+  menu à côté permet d'en choisir une autre) et les ajoute à la fiche existante, qui reste
+  restaurable d'un bloc.
 - Restaure : retire les liens, remet chaque élément à son emplacement d'origine, nettoie le
   dossier de destination.
 - Supprime : envoie à la corbeille le bundle et les fichiers annexes cochés, que l'app soit
@@ -79,6 +89,16 @@ exactement où c'était.
 - **Détection des fichiers annexes.** Le rapprochement se fait sur le nom exact du dossier
   (identifiant de bundle, puis nom de l'app) — jamais de correspondance approximative. La
   liste est présentée avec cases à cocher : rien n'est déplacé sans validation.
+- **Dossiers dans le répertoire utilisateur.** Beaucoup d'apps stockent leurs gros volumes de
+  données hors de `~/Library` : LM Studio est distribué sous le nom `Bionic.app` mais garde ses
+  modèles dans `~/.lmstudio`. Ni le nom de l'app ni son identifiant complet ne le disent — seul
+  un composant de l'identifiant (`ai.…lmstudio.…`) fait le lien. L'app teste donc l'existence
+  exacte de `~/.<composant>`, `~/.config/<composant>`, `~/.cache/<composant>` et
+  `~/.local/share/<composant>` pour le nom de l'app et pour chaque composant de son identifiant,
+  en écartant les composants trop génériques (`com`, `app`, `desktop`, `client`…). Les
+  emplacements partagés par tout le système ou porteurs de secrets — `~/.ssh`, `~/.gnupg`,
+  `~/.aws`, `~/.config`, `~/.cache`, `~/.local`, `~/.Trash` — ne sont jamais proposés, même si
+  une app porte ce nom. Comme le reste, tout passe par les cases à cocher.
 - **Accès disque complet.** Quelques sous-dossiers de `~/Library` sont protégés par TCC. Si un
   déplacement échoue là-dessus, accorder « Accès complet au disque » à l'app dans
   Réglages Système → Confidentialité et sécurité.
@@ -111,7 +131,7 @@ app, puisque plusieurs apps partagent désormais les mêmes dossiers de destinat
 ## Compiler
 
 ```bash
-./build.sh 0.2.5
+./build.sh 0.2.6
 ```
 
 Produit `dist/MacintoshHDisTooSmall.app` (universel arm64 + x86_64) et son zip.

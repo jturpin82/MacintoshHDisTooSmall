@@ -10,17 +10,39 @@ struct SupportItem: Identifiable, Hashable {
         case savedState
         case httpStorages
         case webKit
+        case homeHidden
+        case xdgConfig
+        case xdgCache
+        case xdgData
 
-        /// Path of the containing directory, relative to ~/Library.
-        var librarySubpath: String {
+        /// Path of the containing directory, relative to the home folder.
+        /// Empty for `homeHidden`, whose items sit at the root of ~ itself.
+        var homeSubpath: String {
             switch self {
-            case .applicationSupport: return "Application Support"
-            case .caches: return "Caches"
-            case .containers: return "Containers"
-            case .logs: return "Logs"
-            case .savedState: return "Saved Application State"
-            case .httpStorages: return "HTTPStorages"
-            case .webKit: return "WebKit"
+            case .applicationSupport: return "Library/Application Support"
+            case .caches: return "Library/Caches"
+            case .containers: return "Library/Containers"
+            case .logs: return "Library/Logs"
+            case .savedState: return "Library/Saved Application State"
+            case .httpStorages: return "Library/HTTPStorages"
+            case .webKit: return "Library/WebKit"
+            case .homeHidden: return ""
+            case .xdgConfig: return ".config"
+            case .xdgCache: return ".cache"
+            case .xdgData: return ".local/share"
+            }
+        }
+
+        func baseURL(inHome home: URL) -> URL {
+            homeSubpath.isEmpty ? home : home.appendingPathComponent(homeSubpath)
+        }
+
+        /// True for the kinds living outside ~/Library, where an app's data
+        /// folder is named after the app rather than placed by macOS.
+        var isOutsideLibrary: Bool {
+            switch self {
+            case .homeHidden, .xdgConfig, .xdgCache, .xdgData: return true
+            default: return false
             }
         }
 
@@ -33,6 +55,10 @@ struct SupportItem: Identifiable, Hashable {
             case .savedState: return "État de fenêtres"
             case .httpStorages: return "Stockage HTTP"
             case .webKit: return "WebKit"
+            case .homeHidden: return "Dossier utilisateur"
+            case .xdgConfig: return "Configuration (.config)"
+            case .xdgCache: return "Cache (.cache)"
+            case .xdgData: return "Données (.local/share)"
             }
         }
 
@@ -48,6 +74,10 @@ struct SupportItem: Identifiable, Hashable {
             case .savedState: return "SavedApplicationState"
             case .httpStorages: return "HTTPStorages"
             case .webKit: return "WebKit"
+            case .homeHidden: return "Home"
+            case .xdgConfig: return "Config"
+            case .xdgCache: return "CacheXDG"
+            case .xdgData: return "LocalShare"
             }
         }
 
@@ -60,6 +90,10 @@ struct SupportItem: Identifiable, Hashable {
             case .savedState: return "macwindow"
             case .httpStorages: return "network"
             case .webKit: return "globe"
+            case .homeHidden: return "house"
+            case .xdgConfig: return "slider.horizontal.3"
+            case .xdgCache: return "clock.arrow.circlepath"
+            case .xdgData: return "archivebox"
             }
         }
     }

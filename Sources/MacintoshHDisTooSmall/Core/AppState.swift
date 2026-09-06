@@ -65,6 +65,12 @@ final class AppState {
     private(set) var isLoadingAdoptable = false
     private var adoptableItemsAppID: String?
 
+    // Support items an already-moved app left behind on the disk
+    private(set) var remainingItems: [SupportItem] = []
+    var selectedRemainingIDs: Set<String> = []
+    private(set) var isLoadingRemaining = false
+    private var remainingRecordID: String?
+
     // Running operation
     private(set) var isBusy = false
     private(set) var operationLabel = ""
@@ -155,6 +161,10 @@ final class AppState {
 
     var selectedSupportBytes: Int64 {
         supportItems.filter { selectedSupportIDs.contains($0.id) }.reduce(0) { $0 + $1.size }
+    }
+
+    var selectedRemainingBytes: Int64 {
+        remainingItems.filter { selectedRemainingIDs.contains($0.id) }.reduce(0) { $0 + $1.size }
     }
 
     /// What a deletion is about to send to the Trash, for the confirmation dialog.
@@ -358,6 +368,51 @@ final class AppState {
         }
     }
 
+    /// Caches and configuration folders that belong to an already-moved app
+    /// but are still sitting on the startup disk: never ticked at the time,
+    /// or only created by the app afterwards. `locate` skips anything that is
+    /// already a symlink, so what comes back is exactly what has yet to move;
+    /// paths the record already covers are dropped too, in case a symlink was
+    /// destroyed and the app rebuilt a real folder in its place.
+    func loadRemainingItems(for row: AppRow) {
+        guard let record = row.record else {
+            remainingItems = []
+            selectedRemainingIDs = []
+            remainingRecordID = nil
+            return
+        }
+        guard remainingRecordID != record.id else { return }
+
+        remainingRecordID = record.id
+        remainingItems = []
+        selectedRemainingIDs = []
+        isLoadingRemaining = true
+
+        let recordID = record.id
+        let name = record.appName
+        let bundleID = record.bundleID
+        let known = Set(record.items.map(\.originalPath))
+
+        Task.detached(priority: .userInitiated) { [self] in
+            let items = SupportFileLocator.locate(name: name, bundleID: bundleID)
+                .filter { !known.contains($0.url.path) }
+            await MainActor.run {
+                guard self.remainingRecordID == recordID else { return }
+                self.remainingItems = items
+                self.selectedRemainingIDs = Set(items.map(\.id))
+                self.isLoadingRemaining = false
+            }
+        }
+    }
+
+    func toggleRemainingItem(_ item: SupportItem) {
+        if selectedRemainingIDs.contains(item.id) {
+            selectedRemainingIDs.remove(item.id)
+        } else {
+            selectedRemainingIDs.insert(item.id)
+        }
+    }
+
     // MARK: - Actions
 
     /// Destination proposed by default for a move: the configured one, if any.
@@ -393,6 +448,32 @@ final class AppState {
                 // Keep whatever actually made it across so it stays restorable.
                 reconcile(plan.record)
                 forgetSupportCache(for: app.id)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Moves the items an earlier relocation left behind, joining them to the
+    /// existing record. `destination` overrides the folder the app itself went
+    /// to, for this batch only.
+    func relocateRemaining(to destination: URL?) {
+        guard let row = selectedRow, let record = row.record else { return }
+        let chosen = remainingItems.filter { selectedRemainingIDs.contains($0.id) }
+        guard !chosen.isEmpty else { return }
+
+        do {
+            let plan = try Relocator.planCompletion(record: record,
+                                                    supportItems: chosen,
+                                                    destination: destination ?? record.destinationRootURL)
+            perform(plan.operations) { [self] in
+                Relocator.writeManifest(plan.record)
+                ledger.add(plan.record)
+                forgetSupportCache(for: row.app?.id)
+            } onFailure: { [self] in
+                // Keep whatever actually made it across so it stays restorable.
+                reconcile(plan.record)
+                forgetSupportCache(for: row.app?.id)
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -482,6 +563,7 @@ final class AppState {
 
     private func forgetSupportCache(for appID: String?) {
         supportItemsAppID = nil
+        remainingRecordID = nil
         guard let appID else { return }
         supportCache[appID] = nil
         supportSizes[appID] = nil
@@ -542,7 +624,19 @@ final class AppState {
                 }
                 self.isBusy = false
                 self.refresh()
+                self.reloadSelectionDetails()
             }
         }
+    }
+
+    /// The detail lists are normally loaded when the selection changes. An
+    /// operation that leaves the same app selected — completing a move, for
+    /// one — has to ask for them again, otherwise the panel keeps showing
+    /// files that have just been moved away.
+    private func reloadSelectionDetails() {
+        guard let row = selectedRow else { return }
+        loadSupportItems(for: row)
+        loadAdoptableItems(for: row)
+        loadRemainingItems(for: row)
     }
 }

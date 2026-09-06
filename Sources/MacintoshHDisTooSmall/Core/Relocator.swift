@@ -46,14 +46,12 @@ enum Relocator {
 
     // MARK: - Moving out
 
-    static func planRelocation(app: InstalledApp,
-                               supportItems: [SupportItem],
-                               destination: URL,
-                               createAppSymlink: Bool) throws -> (operations: [FileOperation], record: MoveRecord) {
-        let fm = FileManager.default
-
+    /// Rejects a destination that isn't a real folder, or that sits inside a
+    /// system location the app must never write into.
+    private static func validate(destination: URL) throws {
         var isDirectory: ObjCBool = false
-        guard fm.fileExists(atPath: destination.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard FileManager.default.fileExists(atPath: destination.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
             throw RelocationError.destinationUnusable(destination.path)
         }
         let destinationPath = destination.standardizedFileURL.path
@@ -61,6 +59,48 @@ enum Relocator {
         if forbiddenRoots.contains(where: { destinationPath == $0 || destinationPath.hasPrefix($0 + "/") }) {
             throw RelocationError.destinationForbidden(destinationPath)
         }
+    }
+
+    /// Move + symlink steps for a batch of support items, and the ledger
+    /// entries describing them. Shared by a first relocation and a later
+    /// completion of one.
+    private static func supportSteps(_ supportItems: [SupportItem],
+                                     destination: URL) throws -> ([FileOperation], [MovedItem]) {
+        let fm = FileManager.default
+        var operations: [FileOperation] = []
+        var items: [MovedItem] = []
+
+        for item in supportItems {
+            let folder = destination.appendingPathComponent(item.kind.destinationFolderName)
+            let target = folder.appendingPathComponent(item.url.lastPathComponent)
+            guard fm.fileExists(atPath: item.url.path) else {
+                throw RelocationError.missingSource(item.url.path)
+            }
+            guard !fm.fileExists(atPath: target.path) else {
+                throw RelocationError.targetExists(target.path)
+            }
+            operations.append(.makeDirectory(folder))
+            operations.append(.move(from: item.url, to: target))
+            // Support files are always symlinked back, otherwise the app just
+            // recreates them and nothing is reclaimed.
+            operations.append(.makeSymlink(link: item.url, target: target))
+            items.append(MovedItem(kind: item.kind.rawValue,
+                                   originalPath: item.url.path,
+                                   relocatedPath: target.path,
+                                   symlinkCreated: true,
+                                   bytes: item.size))
+        }
+
+        return (operations, items)
+    }
+
+    static func planRelocation(app: InstalledApp,
+                               supportItems: [SupportItem],
+                               destination: URL,
+                               createAppSymlink: Bool) throws -> (operations: [FileOperation], record: MoveRecord) {
+        let fm = FileManager.default
+
+        try validate(destination: destination)
         guard !app.isRelocated else { throw RelocationError.alreadyRelocated(app.name) }
         guard fm.fileExists(atPath: app.installedURL.path) else {
             throw RelocationError.missingSource(app.installedURL.path)
@@ -89,26 +129,9 @@ enum Relocator {
                                symlinkCreated: createAppSymlink,
                                bytes: bundleSize))
 
-        for item in supportItems {
-            let folder = destination.appendingPathComponent(item.kind.destinationFolderName)
-            let target = folder.appendingPathComponent(item.url.lastPathComponent)
-            guard fm.fileExists(atPath: item.url.path) else {
-                throw RelocationError.missingSource(item.url.path)
-            }
-            guard !fm.fileExists(atPath: target.path) else {
-                throw RelocationError.targetExists(target.path)
-            }
-            operations.append(.makeDirectory(folder))
-            operations.append(.move(from: item.url, to: target))
-            // Support files are always symlinked back, otherwise the app just
-            // recreates them and nothing is reclaimed.
-            operations.append(.makeSymlink(link: item.url, target: target))
-            items.append(MovedItem(kind: item.kind.rawValue,
-                                   originalPath: item.url.path,
-                                   relocatedPath: target.path,
-                                   symlinkCreated: true,
-                                   bytes: item.size))
-        }
+        let (supportOperations, supportMoved) = try supportSteps(supportItems, destination: destination)
+        operations += supportOperations
+        items += supportMoved
 
         let record = MoveRecord(appName: app.name,
                                 bundleID: app.bundleID,
@@ -116,6 +139,24 @@ enum Relocator {
                                 movedAt: Date(),
                                 items: items)
         return (operations, record)
+    }
+
+    // MARK: - Completing an earlier move
+
+    /// Moves support items an earlier relocation left behind — files that
+    /// weren't ticked at the time, or that the app only created afterwards.
+    ///
+    /// The record keeps its original `destinationRoot` even when these items
+    /// go to a different folder: it says where the app itself went, and every
+    /// item carries its own pair of paths anyway.
+    static func planCompletion(record: MoveRecord,
+                               supportItems: [SupportItem],
+                               destination: URL) throws -> (operations: [FileOperation], record: MoveRecord) {
+        try validate(destination: destination)
+        let (operations, moved) = try supportSteps(supportItems, destination: destination)
+        var completed = record
+        completed.items += moved
+        return (operations, completed)
     }
 
     // MARK: - Adopting
