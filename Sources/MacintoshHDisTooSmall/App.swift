@@ -5,6 +5,7 @@ import AppKit
 /// the app's icon: with a plain SwiftUI `WindowGroup`, AppKit finds no visible
 /// window to order front, activates the app, and leaves the window stuck in the
 /// Dock — the app looks frozen. Deminiaturizing by hand is the fix.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard !flag else { return true }
