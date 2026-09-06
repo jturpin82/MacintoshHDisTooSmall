@@ -314,6 +314,9 @@ private struct AdoptableItemRow: View {
 
 // MARK: - Already moved
 
+/// @MainActor because `remainingBox` and `moveRemainingButton` read AppState
+/// outside `body`: only `body` inherits the isolation from View conformance.
+@MainActor
 private struct RelocatedSection: View {
     @Bindable var state: AppState
     let record: MoveRecord
